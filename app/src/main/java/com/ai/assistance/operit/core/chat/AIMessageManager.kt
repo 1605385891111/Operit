@@ -25,6 +25,7 @@ import com.ai.assistance.operit.data.model.ChatMessageTimestampAllocator
 import com.ai.assistance.operit.data.model.ToolParameter
 import com.ai.assistance.operit.data.model.PromptFunctionType
 import com.ai.assistance.operit.data.preferences.ApiPreferences
+import com.ai.assistance.operit.data.preferences.CharacterCardManager
 import com.ai.assistance.operit.ui.features.chat.webview.workspace.process.WorkspaceAttachmentProcessor
 import com.ai.assistance.operit.ui.features.chat.webview.workspace.process.WorkspaceChangeTracker
 import com.ai.assistance.operit.util.ImagePoolManager
@@ -108,6 +109,9 @@ object AIMessageManager {
         packageManager = PackageManager.getInstance(context, toolHandler)
         apiPreferences = ApiPreferences.getInstance(context)
     }
+
+    private val characterCardManager: CharacterCardManager
+        get() = CharacterCardManager.getInstance(context)
 
     /**
      * 构建用户消息的完整内容，包括附件和记忆标签。
@@ -381,7 +385,9 @@ object AIMessageManager {
             messages = chatHistory,
             splitByRole = splitHistoryByRole,
             targetRoleName = currentRoleName,
-            groupOrchestrationMode = groupOrchestrationMode
+            groupOrchestrationMode = groupOrchestrationMode,
+            disabledRoleNames =
+                if (groupOrchestrationMode) characterCardManager.getDisabledRoleNames() else emptySet()
         )
         logMessageTiming(
             stage = "sendMessage.buildMemory",
@@ -557,7 +563,9 @@ object AIMessageManager {
                 messages = chatHistory,
                 splitByRole = splitHistoryByRole,
                 targetRoleName = currentRoleName,
-                groupOrchestrationMode = groupOrchestrationMode
+                groupOrchestrationMode = groupOrchestrationMode,
+                disabledRoleNames =
+                    if (groupOrchestrationMode) characterCardManager.getDisabledRoleNames() else emptySet()
             )
         val maxImageHistoryUserTurns = apiPreferences.maxImageHistoryUserTurnsFlow.first()
         val maxMediaHistoryUserTurns = apiPreferences.maxMediaHistoryUserTurnsFlow.first()
@@ -684,18 +692,57 @@ object AIMessageManager {
     suspend fun summarizeMemory(
         enhancedAiService: EnhancedAIService,
         messages: List<ChatMessage>,
+        chatId: String,
         autoContinue: Boolean = false,
         isGroupChat: Boolean = false,
         summaryConfig: ConversationSummaryConfig = ConversationSummaryConfig()
     ): ChatMessage? {
         val lastSummaryIndex = messages.indexOfLast { it.sender == "summary" }
         val previousSummary = if (lastSummaryIndex != -1) messages[lastSummaryIndex].content.trim() else null
-
-        val messagesToSummarize = when {
-            lastSummaryIndex == -1 -> messages.filter { it.sender == "user" || it.sender == "ai" }
+        val windowMessages = when {
+            lastSummaryIndex == -1 -> messages
             else -> messages.subList(lastSummaryIndex + 1, messages.size)
-                .filter { it.sender == "user" || it.sender == "ai" }
         }
+        val disabledCharacterIds =
+            if (isGroupChat) characterCardManager.getDisabledCharacterIds() else emptySet()
+        val disabledRoleNames =
+            if (isGroupChat) characterCardManager.getDisabledRoleNames() else emptySet()
+        val pendingReinclude = if (isGroupChat) characterCardManager.getPendingReinclude(chatId) else emptyMap()
+        // 已解禁角色的冻结消息，重新纳入本次总结
+        val reinstateCharacterIds = pendingReinclude.keys.filter { it !in disabledCharacterIds }.toSet()
+        val reinstateTimestamps =
+            reinstateCharacterIds.flatMapTo(mutableSetOf()) { characterCardId ->
+                pendingReinclude[characterCardId].orEmpty()
+            }
+
+        // 被禁用角色在本轮窗口内尚未结算的消息，先登记冻结，解禁后重新纳入
+        if (isGroupChat && disabledRoleNames.isNotEmpty()) {
+            val skippedByCharacter = mutableMapOf<String, MutableSet<Long>>()
+            windowMessages
+                .filter { it.sender == "ai" && it.roleName.trim() in disabledRoleNames }
+                .forEach { message ->
+                    val card = characterCardManager.findCharacterCardByName(message.roleName.trim())
+                    if (card != null) {
+                        skippedByCharacter.getOrPut(card.id) { mutableSetOf() }.add(message.timestamp)
+                    }
+                }
+            if (skippedByCharacter.isNotEmpty()) {
+                characterCardManager.recordPendingReinclude(chatId, skippedByCharacter)
+            }
+        }
+
+        val messagesToSummarize = (
+            windowMessages
+                .filter { it.sender == "user" || it.sender == "ai" }
+                .filter { message ->
+                    !(isGroupChat && message.sender == "ai" && message.roleName.trim() in disabledRoleNames)
+                } +
+                if (reinstateTimestamps.isEmpty()) {
+                    emptyList()
+                } else {
+                    messages.filter { message -> message.timestamp in reinstateTimestamps }
+                }
+            ).distinct().sortedBy { message -> message.timestamp }
 
         if (messagesToSummarize.isEmpty()) {
             AppLogger.d(TAG, "没有新消息需要总结")
@@ -1086,6 +1133,10 @@ object AIMessageManager {
                 } else {
                     summaryWithQuotes
                 }
+
+                if (reinstateCharacterIds.isNotEmpty()) {
+                    characterCardManager.clearPendingReinclude(chatId, reinstateCharacterIds)
+                }
                 
                 ChatMessage(
                     sender = "summary",
@@ -1332,7 +1383,8 @@ object AIMessageManager {
         messages: List<ChatMessage>,
         splitByRole: Boolean = false,
         targetRoleName: String? = null,
-        groupOrchestrationMode: Boolean = false
+        groupOrchestrationMode: Boolean = false,
+        disabledRoleNames: Set<String> = emptySet()
     ): List<PromptTurn> {
         val totalStartTime = messageTimingNow()
         // 1. 找到最后一条总结消息，只处理总结之后的消息
@@ -1353,9 +1405,13 @@ object AIMessageManager {
             return ChatMarkupRegex.statusSelfClosingTag.replace(noStatus, " ").trim()
         }
 
-        // 4. 处理每条消息
+        // 4. 处理每条消息（群聊场景下排除被禁用角色）
+        val skipDisabledRoles = groupOrchestrationMode && disabledRoleNames.isNotEmpty()
         val processedMessages = relevantMessages
             .filter { it.sender == "user" || it.sender == "ai" || it.sender == "summary" }
+            .filter { message ->
+                !(skipDisabledRoles && message.sender == "ai" && message.roleName.trim() in disabledRoleNames)
+            }
             .mapNotNull { message ->
                 when (message.sender) {
                     "ai" -> processAiMessage(
