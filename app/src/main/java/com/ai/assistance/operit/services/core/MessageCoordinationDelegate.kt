@@ -788,9 +788,11 @@ class MessageCoordinationDelegate(
     ): Boolean {
         val group = resolveTargetGroupForChat(chatId) ?: return false
 
+        val disabledCharacterIds = characterCardManager.getDisabledCharacterIds()
         val orderedMembers = group.members
             .sortedBy { it.orderIndex }
             .filter { it.characterCardId.isNotBlank() }
+            .filter { it.characterCardId !in disabledCharacterIds }
         AppLogger.d(
             TAG,
             "回答规划: plan=${group.id}, members=${group.members.size}, activeMembers=${orderedMembers.size}"
@@ -1181,7 +1183,9 @@ class MessageCoordinationDelegate(
         } else {
             "用户（用户）"
         }
+        val disabledCharacterIds = characterCardManager.getDisabledCharacterIds()
         val participantNames = members
+            .filter { it.characterCardId !in disabledCharacterIds }
             .sortedBy { it.orderIndex }
             .mapNotNull { member -> memberCardsById[member.characterCardId]?.name?.trim()?.takeIf { it.isNotBlank() } }
             .distinct() + formattedUserName
@@ -1781,6 +1785,7 @@ class MessageCoordinationDelegate(
                 val summaryMessage = AIMessageManager.summarizeMemory(
                     enhancedAiService = service,
                     messages = snapshotMessages,
+                    chatId = originalChatId,
                     autoContinue = false,
                     isGroupChat = isGroupChat,
                     summaryConfig = summaryConfig
@@ -1908,6 +1913,7 @@ class MessageCoordinationDelegate(
                 AIMessageManager.summarizeMemory(
                     service,
                     currentMessages,
+                    requireNotNull(currentChatId),
                     autoContinue,
                     effectiveIsGroupChat,
                     summaryConfig
