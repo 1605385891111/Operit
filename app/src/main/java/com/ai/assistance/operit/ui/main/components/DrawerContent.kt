@@ -1,6 +1,7 @@
 package com.ai.assistance.operit.ui.main.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,10 +33,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,6 +59,8 @@ import com.ai.assistance.operit.core.tools.packTool.PackageManager
 import com.ai.assistance.operit.core.tools.system.AndroidPermissionLevel
 import com.ai.assistance.operit.core.tools.system.ShizukuAuthorizer
 import com.ai.assistance.operit.core.tools.system.action.ActionListenerFactory
+import com.ai.assistance.operit.data.model.CharacterCard
+import com.ai.assistance.operit.data.preferences.CharacterCardManager
 import com.ai.assistance.operit.data.preferences.UserPreferencesManager
 import com.ai.assistance.operit.data.preferences.androidPermissionPreferences
 import com.ai.assistance.operit.data.repository.WorkflowRepository
@@ -256,6 +263,8 @@ fun DrawerContent(
                                 onNavItemClick = handleNavItemClick,
                                 onNavigationEntryClick = handleNavigationEntryClick
                         )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        SidebarDisabledCharactersSection(appearance = appearance)
                         Spacer(modifier = Modifier.height(16.dp))
                 }
 
@@ -546,6 +555,64 @@ private fun NewSidebarTopContent(
                                 appearance = appearance,
                                 onClick = { onNavigationEntryClick(entry) }
                         )
+                }
+        }
+}
+
+@Composable
+private fun SidebarDisabledCharactersSection(appearance: NavigationDrawerAppearance) {
+        val context = LocalContext.current
+        val characterCardManager = remember { CharacterCardManager.getInstance(context) }
+        val scope = rememberCoroutineScope()
+        val disabledIds by
+                characterCardManager.disabledCharacterIdsFlow.collectAsState(initial = emptySet())
+        val cardIds by characterCardManager.characterCardListFlow.collectAsState(initial = emptyList())
+        var allCards by remember { mutableStateOf<List<CharacterCard>>(emptyList()) }
+
+        LaunchedEffect(cardIds) {
+                allCards = characterCardManager.getAllCharacterCards()
+        }
+
+        Text(
+                text = stringResource(id = R.string.nav_group_disabled_characters),
+                style = MaterialTheme.typography.titleSmall,
+                color = appearance.titleColor.copy(alpha = 0.82f),
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(start = 28.dp, end = 20.dp, bottom = 2.dp)
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        allCards.forEach { card ->
+                val isDisabled = disabledIds.contains(card.id)
+                Row(
+                        modifier =
+                                Modifier.fillMaxWidth()
+                                        .clickable {
+                                                scope.launch {
+                                                        characterCardManager.setCharacterDisabled(
+                                                                card.id,
+                                                                !isDisabled
+                                                        )
+                                                }
+                                        }
+                                        .padding(start = 28.dp, end = 20.dp, top = 8.dp, bottom = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                ) {
+                        Text(
+                                text = card.name,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = appearance.titleColor,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                        )
+                        if (isDisabled) {
+                                Text(
+                                        text = stringResource(id = R.string.character_disabled_mark),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.error,
+                                        fontWeight = FontWeight.SemiBold
+                                )
+                        }
                 }
         }
 }
