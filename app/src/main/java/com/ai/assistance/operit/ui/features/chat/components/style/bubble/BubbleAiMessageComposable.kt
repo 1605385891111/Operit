@@ -28,7 +28,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.ai.assistance.operit.R
 import com.ai.assistance.operit.data.model.ChatMessage
 import com.ai.assistance.operit.ui.common.markdown.StreamMarkdownRenderer
 import com.ai.assistance.operit.ui.common.markdown.StreamMarkdownRendererState
@@ -144,7 +146,14 @@ fun BubbleAiMessageComposable(
             CircleShape
         }
     }
-    val roleNameText = if (showRoleName && message.roleName.isNotEmpty()) message.roleName else ""
+    val disabledRoleNames by
+            characterCardManager.disabledRoleNamesFlow.collectAsState(initial = emptySet())
+    val disabledMark = stringResource(id = R.string.character_disabled_mark)
+    val isRoleDisabled = message.roleName.isNotBlank() && message.roleName in disabledRoleNames
+    val roleNameText =
+            if (showRoleName && message.roleName.isNotEmpty()) {
+                if (isRoleDisabled) "${message.roleName} $disabledMark" else message.roleName
+            } else ""
     val metadataText = buildString {
         if (showModelName && message.modelName.isNotEmpty()) {
             append(message.modelName)
