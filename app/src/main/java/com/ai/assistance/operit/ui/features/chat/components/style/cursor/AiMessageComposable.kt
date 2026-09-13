@@ -25,11 +25,14 @@ import com.ai.assistance.operit.ui.features.chat.components.part.ThinkToolsXmlNo
 import com.ai.assistance.operit.ui.features.chat.components.LinkPreviewDialog
 import com.ai.assistance.operit.util.markdown.toCharStream
 import com.ai.assistance.operit.util.stream.Stream
+import com.ai.assistance.operit.R
+import com.ai.assistance.operit.data.preferences.CharacterCardManager
 import com.ai.assistance.operit.data.preferences.DisplayPreferencesManager
 import com.ai.assistance.operit.data.preferences.ToolCollapseMode
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.res.stringResource
 import com.ai.assistance.operit.ui.theme.LocalThemePreferenceSnapshot
 import com.ai.assistance.operit.ui.theme.ProvideAiMarkdownTextLayoutSettings
 
@@ -141,10 +144,20 @@ fun AiMessageComposable(
             )
             
             // 右侧：详细信息（角色名、模型信息）
+            val cursorContext = LocalContext.current
+            val characterCardManager = remember { CharacterCardManager.getInstance(cursorContext) }
+            val disabledRoleNames by
+                    characterCardManager.disabledRoleNamesFlow.collectAsState(initial = emptySet())
+            val disabledMark = stringResource(id = R.string.character_disabled_mark)
+            val isRoleDisabled = message.roleName.isNotBlank() && message.roleName in disabledRoleNames
             val detailText = buildString {
                 // 根据用户设置显示角色名称
                 if (showRoleName && message.roleName.isNotEmpty()) {
                     append(message.roleName)
+                    if (isRoleDisabled) {
+                        append(" ")
+                        append(disabledMark)
+                    }
                 }
                 
                 // 根据用户设置显示模型信息
