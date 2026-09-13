@@ -8446,4 +8446,6 @@
     <string name="codex_usage_unavailable">额度暂时不可用</string>
     <string name="codex_reset_after_days">%1$d 天后重置</string>
     <string name="codex_reset_after_clock">%1$02d:%2$02d 后重置</string>
+    <string name="nav_group_disabled_characters">禁用角色</string>
+    <string name="character_disabled_mark">禁</string>
 </resources>
