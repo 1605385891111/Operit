@@ -91,6 +91,10 @@ class CharacterCardManager private constructor(private val context: Context) {
     companion object {
         private val CHARACTER_CARD_LIST = stringSetPreferencesKey("character_card_list")
         private val ACTIVE_CHARACTER_CARD_ID = stringPreferencesKey("active_character_card_id")
+        // 全局被禁用角色的 ID 集合（仅在 AI 流程层过滤，不删除任何数据）
+        private val DISABLED_CHARACTER_IDS = stringSetPreferencesKey("disabled_character_ids")
+        // 被禁用角色在总结中被跳过的未结算消息，元素格式 "chatId|characterCardId|timestamp"
+        private val PENDING_REINCLUDE = stringSetPreferencesKey("pending_reinclude")
 
         // 默认角色卡ID
         const val DEFAULT_CHARACTER_CARD_ID = "default_character"
@@ -571,6 +575,17 @@ class CharacterCardManager private constructor(private val context: Context) {
                 }
             }
             
+            // 同步清理该角色的禁用记录
+            val disabledIds = preferences[DISABLED_CHARACTER_IDS] ?: emptySet()
+            if (disabledIds.contains(id)) {
+                preferences[DISABLED_CHARACTER_IDS] = disabledIds - id
+            }
+            val pendingEntries = preferences[PENDING_REINCLUDE] ?: emptySet()
+            val remainingPendingEntries = pendingEntries.filterNot { entry -> entry.contains("|$id|") }
+            if (remainingPendingEntries.size != pendingEntries.size) {
+                preferences[PENDING_REINCLUDE] = remainingPendingEntries.toSet()
+            }
+
             // 如果这是活跃角色卡，切换到默认
             if (preferences[ACTIVE_CHARACTER_CARD_ID] == id) {
                 deletedActiveCard = true
@@ -697,6 +712,93 @@ class CharacterCardManager private constructor(private val context: Context) {
             }
         }
     }
+
+    // ===== 全局禁用角色 =====
+
+    /** 全局已禁用角色 ID 集合 */
+    val disabledCharacterIdsFlow: Flow<Set<String>> =
+        dataStore.data.map { preferences -> preferences[DISABLED_CHARACTER_IDS] ?: emptySet() }
+
+    suspend fun getDisabledCharacterIds(): Set<String> = disabledCharacterIdsFlow.first()
+
+    /** 已禁用角色的名字集合（可观察），供 UI 与上下文过滤使用 */
+    val disabledRoleNamesFlow: Flow<Set<String>> =
+        dataStore.data.map { preferences ->
+            val ids = preferences[DISABLED_CHARACTER_IDS] ?: emptySet()
+            if (ids.isEmpty()) {
+                emptySet()
+            } else {
+                val cardsById = getAllCharacterCards().associateBy { card -> card.id }
+                ids.mapNotNullTo(mutableSetOf()) { id ->
+                    cardsById[id]?.name?.takeIf { name -> name.isNotBlank() }
+                }
+            }
+        }
+
+    /** 已禁用角色的名字集合，用于与 ChatMessage.roleName 比对 */
+    suspend fun getDisabledRoleNames(): Set<String> = disabledRoleNamesFlow.first()
+
+    suspend fun setCharacterDisabled(characterCardId: String, disabled: Boolean) {
+        dataStore.edit { preferences ->
+            val current = preferences[DISABLED_CHARACTER_IDS] ?: emptySet()
+            preferences[DISABLED_CHARACTER_IDS] =
+                if (disabled) current + characterCardId else current - characterCardId
+        }
+    }
+
+    /**
+     * 记录被禁用角色在本次总结中被跳过的未结算消息。
+     * 解禁后这些消息重新纳入总结，保证冻结期间内容不丢失。
+     */
+    suspend fun recordPendingReinclude(chatId: String, timestampsByCharacter: Map<String, Set<Long>>) {
+        if (timestampsByCharacter.isEmpty()) return
+        dataStore.edit { preferences ->
+            val current = preferences[PENDING_REINCLUDE] ?: emptySet()
+            val additions = timestampsByCharacter.flatMap { (characterCardId, timestamps) ->
+                timestamps.map { timestamp -> pendingReincludeEntry(chatId, characterCardId, timestamp) }
+            }
+            if (additions.isNotEmpty()) {
+                preferences[PENDING_REINCLUDE] = current + additions
+            }
+        }
+    }
+
+    /** 查询某会话下各角色被冻结的消息时间戳 */
+    suspend fun getPendingReinclude(chatId: String): Map<String, Set<Long>> {
+        val prefix = "$chatId|"
+        val entries = (dataStore.data.first()[PENDING_REINCLUDE] ?: emptySet())
+            .filter { entry -> entry.startsWith(prefix) }
+        val result = mutableMapOf<String, MutableSet<Long>>()
+        entries.forEach { entry ->
+            val segments = entry.split("|")
+            if (segments.size < 3) return@forEach
+            val characterCardId = segments[segments.size - 2]
+            val timestamp = segments[segments.size - 1].toLongOrNull() ?: return@forEach
+            result.getOrPut(characterCardId) { mutableSetOf() }.add(timestamp)
+        }
+        return result
+    }
+
+    suspend fun clearPendingReinclude(chatId: String, characterCardIds: Set<String>) {
+        if (characterCardIds.isEmpty()) return
+        dataStore.edit { preferences ->
+            val current = preferences[PENDING_REINCLUDE] ?: emptySet()
+            val remaining = current.filterNot { entry ->
+                characterCardIds.any { characterCardId ->
+                    entry.startsWith(pendingReincludePrefix(chatId, characterCardId))
+                }
+            }
+            if (remaining.size != current.size) {
+                preferences[PENDING_REINCLUDE] = remaining.toSet()
+            }
+        }
+    }
+
+    private fun pendingReincludePrefix(chatId: String, characterCardId: String): String =
+        "$chatId|$characterCardId|"
+
+    private fun pendingReincludeEntry(chatId: String, characterCardId: String, timestamp: Long): String =
+        "${pendingReincludePrefix(chatId, characterCardId)}$timestamp"
 
     data class CharacterCardsBackupFile(
         val schema: String = "operit_character_cards_backup_v1",
