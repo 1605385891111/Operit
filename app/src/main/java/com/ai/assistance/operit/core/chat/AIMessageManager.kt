@@ -383,11 +383,13 @@ object AIMessageManager {
         val buildMemoryStartTime = messageTimingNow()
         // 角色独立视野：被禁用过的角色使用它的专属总结，并隐藏"不在场"区间的消息
         val roleDisabledWindows = characterCardManager.getDisabledWindows(roleCardId)
-        val roleScopedSummary = if (roleDisabledWindows.isEmpty()) {
+        val roleScopedSummaryState = if (roleDisabledWindows.isEmpty()) {
             null
         } else {
-            characterCardManager.getRoleSummary(chatKey, roleCardId)?.first
+            characterCardManager.getRoleSummary(chatKey, roleCardId)
         }
+        val roleScopedSummary = roleScopedSummaryState?.first
+        val roleScopedCoveredUntil = roleScopedSummaryState?.second ?: 0L
         val memory = getMemoryFromMessages(
             messages = chatHistory,
             splitByRole = splitHistoryByRole,
@@ -396,6 +398,7 @@ object AIMessageManager {
             disabledRoleNames = emptySet(),
             roleScopedSummary = roleScopedSummary,
             hiddenWindows = roleDisabledWindows,
+            roleScopedCoveredUntil = roleScopedCoveredUntil,
             roleScopedHint =
                 if (roleDisabledWindows.isEmpty()) {
                     null
@@ -1445,7 +1448,8 @@ object AIMessageManager {
         // 角色独立视野（被禁用过的角色）：它自己的专属总结 + 隐藏"不在场"区间的消息
         roleScopedSummary: String? = null,
         hiddenWindows: List<Pair<Long, Long>> = emptyList(),
-        roleScopedHint: String? = null
+        roleScopedHint: String? = null,
+        roleScopedCoveredUntil: Long = 0L
     ): List<PromptTurn> {
         val totalStartTime = messageTimingNow()
         // 1. 找到最后一条总结消息，只处理总结之后的消息
@@ -1459,7 +1463,14 @@ object AIMessageManager {
         // 并且不再使用全群共享的总结（改用该角色自己的专属总结，见函数尾部）
         val isRoleScopedView = roleScopedSummary != null || hiddenWindows.isNotEmpty()
         val scopedMessages: List<ChatMessage> = if (isRoleScopedView) {
-            relevantMessages.filter { message ->
+            // 起点用"专属总结已覆盖到的时间点"：它与共享总结的位置可能错位，
+            // 以共享总结为起点会让角色漏掉中间那段它本该看到的对话。
+            val scopedBase = if (roleScopedCoveredUntil > 0L) {
+                messages.filter { message -> message.timestamp > roleScopedCoveredUntil }
+            } else {
+                relevantMessages
+            }
+            scopedBase.filter { message ->
                 message.sender != "summary" &&
                     hiddenWindows.none { window ->
                         message.timestamp >= window.first &&
