@@ -620,6 +620,18 @@ class MessageCoordinationDelegate(
                 preferActiveRoleCard = preferActiveRoleCard,
             )
         }
+        // 被全局禁用的角色：任何入口都不再产生回复
+        // （单聊、自动续聊、后台发送、代发文本、回退路径等一律拦截）
+        val disabledIdsForRole = runBlocking { characterCardManager.getDisabledCharacterIds() }
+        if (roleCardId != null && roleCardId in disabledIdsForRole) {
+            AppLogger.d(TAG, "角色已被全局禁用，跳过本轮发送: roleCardId=$roleCardId")
+            if (!isBackgroundSend && !isAutoContinuation && !isContinuation) {
+                uiStateDelegate.showErrorMessage(
+                    context.getString(R.string.character_disabled_skip_reply)
+                )
+            }
+            return
+        }
         val resolvedOverrides = try {
             if (promptFunctionType == PromptFunctionType.CHAT) {
                 val (resolvedChatModelConfigIdOverride, resolvedChatModelIndexOverride) =
@@ -1820,6 +1832,25 @@ class MessageCoordinationDelegate(
                     afterTimestamp = afterTimestamp,
                     chatIdOverride = originalChatId,
                 )
+                // 群聊：为被禁用过的角色维护独立记忆链
+                // （它被禁用期间"不在场"的内容不会进它的总结）
+                val groupMemberIds = resolveTargetGroupForChat(originalChatId)
+                    ?.members
+                    ?.map { member -> member.characterCardId }
+                    .orEmpty()
+                if (groupMemberIds.isNotEmpty()) {
+                    runCatching {
+                        AIMessageManager.generateRoleScopedSummaries(
+                            enhancedAiService = service,
+                            chatId = originalChatId,
+                            messages = snapshotMessages,
+                            characterCardIds = groupMemberIds,
+                            summaryConfig = summaryConfig
+                        )
+                    }.onFailure { error ->
+                        AppLogger.e(TAG, "角色独立记忆总结失败: ${error.message}", error)
+                    }
+                }
 
                 refreshStableContextWindow(
                     chatId = originalChatId,
@@ -1940,6 +1971,24 @@ class MessageCoordinationDelegate(
                     afterTimestamp = afterTimestamp,
                     chatIdOverride = currentChatId,
                 )
+                // 群聊：为被禁用过的角色维护独立记忆链
+                val groupMemberIds = resolveTargetGroupForChat(currentChatId)
+                    ?.members
+                    ?.map { member -> member.characterCardId }
+                    .orEmpty()
+                if (groupMemberIds.isNotEmpty()) {
+                    runCatching {
+                        AIMessageManager.generateRoleScopedSummaries(
+                            enhancedAiService = service,
+                            chatId = currentChatId,
+                            messages = currentMessages,
+                            characterCardIds = groupMemberIds,
+                            summaryConfig = summaryConfig
+                        )
+                    }.onFailure { error ->
+                        AppLogger.e(TAG, "角色独立记忆总结失败: ${error.message}", error)
+                    }
+                }
 
                 refreshStableContextWindow(
                     chatId = currentChatId,
