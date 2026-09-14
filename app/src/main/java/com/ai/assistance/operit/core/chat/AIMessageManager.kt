@@ -1441,7 +1441,7 @@ object AIMessageManager {
         splitByRole: Boolean = false,
         targetRoleName: String? = null,
         groupOrchestrationMode: Boolean = false,
-        disabledRoleNames: Set<String> = emptySet()
+        disabledRoleNames: Set<String> = emptySet(),
         // 角色独立视野（被禁用过的角色）：它自己的专属总结 + 隐藏"不在场"区间的消息
         roleScopedSummary: String? = null,
         hiddenWindows: List<Pair<Long, Long>> = emptyList(),
