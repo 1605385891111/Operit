@@ -8449,4 +8449,6 @@
     <string name="nav_group_disabled_characters">禁用角色</string>
     <string name="character_disabled_mark">禁</string>
     <string name="character_all_disabled_in_group">当前群聊的角色已全部被禁用，没有角色可以回复。请在抽屉的「禁用角色」中解禁。</string>
+    <string name="character_disabled_skip_reply">该角色已被全局禁用，本轮不生成回复。可在抽屉的「禁用角色」中解禁。</string>
+    <string name="character_role_scoped_hint">你在 %1$s 期间处于禁用状态，未参与那段时间的对话。</string>
 </resources>
