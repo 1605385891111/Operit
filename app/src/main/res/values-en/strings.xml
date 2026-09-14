@@ -8463,4 +8463,5 @@
     <string name="thinking_config_invalid_json">Invalid Thinking Configuration</string>
     <string name="nav_group_disabled_characters">Disabled Characters</string>
     <string name="character_disabled_mark">OFF</string>
+    <string name="character_all_disabled_in_group">All characters in this group are disabled, so no one can reply. Please re-enable them in the drawer.</string>
 </resources>
