@@ -381,13 +381,27 @@ object AIMessageManager {
         activeEnhancedAiServiceByChatId[chatKey] = enhancedAiService
 
         val buildMemoryStartTime = messageTimingNow()
+        // 角色独立视野：被禁用过的角色使用它的专属总结，并隐藏"不在场"区间的消息
+        val roleDisabledWindows = characterCardManager.getDisabledWindows(roleCardId)
+        val roleScopedSummary = if (roleDisabledWindows.isEmpty()) {
+            null
+        } else {
+            characterCardManager.getRoleSummary(chatKey, roleCardId)?.first
+        }
         val memory = getMemoryFromMessages(
             messages = chatHistory,
             splitByRole = splitHistoryByRole,
             targetRoleName = currentRoleName,
             groupOrchestrationMode = groupOrchestrationMode,
-            disabledRoleNames =
-                if (groupOrchestrationMode) characterCardManager.getDisabledRoleNames() else emptySet()
+            disabledRoleNames = emptySet(),
+            roleScopedSummary = roleScopedSummary,
+            hiddenWindows = roleDisabledWindows,
+            roleScopedHint =
+                if (roleDisabledWindows.isEmpty()) {
+                    null
+                } else {
+                    buildRoleScopedHint(roleDisabledWindows)
+                }
         )
         logMessageTiming(
             stage = "sendMessage.buildMemory",
@@ -707,42 +721,15 @@ object AIMessageManager {
             if (isGroupChat) characterCardManager.getDisabledCharacterIds() else emptySet()
         val disabledRoleNames =
             if (isGroupChat) characterCardManager.getDisabledRoleNames() else emptySet()
-        val pendingReinclude = if (isGroupChat) characterCardManager.getPendingReinclude(chatId) else emptyMap()
-        // 已解禁角色的冻结消息，重新纳入本次总结
-        val reinstateCharacterIds = pendingReinclude.keys.filter { it !in disabledCharacterIds }.toSet()
-        val reinstateTimestamps =
-            reinstateCharacterIds.flatMapTo(mutableSetOf()) { characterCardId ->
-                pendingReinclude[characterCardId].orEmpty()
-            }
+        // 说明：被禁用角色的"视野隔离"由它的专属总结负责（generateRoleScopedSummaries）。
+        // 这里不再对被禁角色的历史消息做过滤/冻结登记：
+        // "禁用"表示它从此不再参与，而不是把它从别人的记忆里抹掉——抹掉会让上下文断裂。
 
-        // 被禁用角色在本轮窗口内尚未结算的消息，先登记冻结，解禁后重新纳入
-        if (isGroupChat && disabledRoleNames.isNotEmpty()) {
-            val skippedByCharacter = mutableMapOf<String, MutableSet<Long>>()
-            windowMessages
-                .filter { it.sender == "ai" && it.roleName.trim() in disabledRoleNames }
-                .forEach { message ->
-                    val card = characterCardManager.findCharacterCardByName(message.roleName.trim())
-                    if (card != null) {
-                        skippedByCharacter.getOrPut(card.id) { mutableSetOf() }.add(message.timestamp)
-                    }
-                }
-            if (skippedByCharacter.isNotEmpty()) {
-                characterCardManager.recordPendingReinclude(chatId, skippedByCharacter)
-            }
-        }
-
-        val messagesToSummarize = (
+        val messagesToSummarize =
             windowMessages
                 .filter { it.sender == "user" || it.sender == "ai" }
-                .filter { message ->
-                    !(isGroupChat && message.sender == "ai" && message.roleName.trim() in disabledRoleNames)
-                } +
-                if (reinstateTimestamps.isEmpty()) {
-                    emptyList()
-                } else {
-                    messages.filter { message -> message.timestamp in reinstateTimestamps }
-                }
-            ).distinct().sortedBy { message -> message.timestamp }
+                .distinct()
+                .sortedBy { message -> message.timestamp }
 
         if (messagesToSummarize.isEmpty()) {
             AppLogger.d(TAG, "没有新消息需要总结")
@@ -1134,9 +1121,6 @@ object AIMessageManager {
                     summaryWithQuotes
                 }
 
-                if (reinstateCharacterIds.isNotEmpty()) {
-                    characterCardManager.clearPendingReinclude(chatId, reinstateCharacterIds)
-                }
                 
                 ChatMessage(
                     sender = "summary",
@@ -1152,6 +1136,79 @@ object AIMessageManager {
             AppLogger.e(TAG, "AI生成总结过程中发生异常", e)
             throw e
         }
+    }
+
+    /**
+     * 为"已经有独立记忆链"的角色（被禁用过的角色）生成专属总结。
+     * 输入只包含它当时在场的消息，因此总结里不会出现它被禁用期间的内容。
+     */
+    suspend fun generateRoleScopedSummaries(
+        enhancedAiService: EnhancedAIService,
+        chatId: String,
+        messages: List<ChatMessage>,
+        characterCardIds: List<String>,
+        summaryConfig: ConversationSummaryConfig = ConversationSummaryConfig()
+    ): Int {
+        var generated = 0
+        characterCardIds.distinct().forEach { characterCardId ->
+            val windows = characterCardManager.getDisabledWindows(characterCardId)
+            if (windows.isEmpty()) {
+                // 从未被禁用过：与全群共用同一条记忆链
+                return@forEach
+            }
+            val previous = characterCardManager.getRoleSummary(chatId, characterCardId)
+            val coveredUntil = previous?.second ?: 0L
+            val visibleMessages = messages.filter { message ->
+                message.timestamp > coveredUntil &&
+                    windows.none { window ->
+                        message.timestamp >= window.first && message.timestamp <= window.second
+                    }
+            }
+            if (visibleMessages.none { it.sender == "user" || it.sender == "ai" }) {
+                return@forEach
+            }
+            val input = mutableListOf<ChatMessage>()
+            if (previous != null) {
+                input.add(
+                    ChatMessage(
+                        sender = "summary",
+                        content = previous.first,
+                        timestamp = coveredUntil,
+                        roleName = "system"
+                    )
+                )
+            }
+            input.addAll(visibleMessages)
+            val summaryMessage = runCatching {
+                summarizeMemory(
+                    enhancedAiService = enhancedAiService,
+                    messages = input,
+                    chatId = chatId,
+                    autoContinue = false,
+                    isGroupChat = false,
+                    summaryConfig = summaryConfig
+                )
+            }.getOrNull() ?: return@forEach
+            val newCoveredUntil = visibleMessages.maxOf { message -> message.timestamp }
+            characterCardManager.saveRoleSummary(
+                chatId = chatId,
+                characterCardId = characterCardId,
+                summary = summaryMessage.content,
+                coveredUntil = newCoveredUntil
+            )
+            generated++
+        }
+        return generated
+    }
+
+    /** 告知角色"你在哪些时间段不在场"，避免它对着记忆里的断层乱猜 */
+    private fun buildRoleScopedHint(windows: List<Pair<Long, Long>>): String {
+        val formatter = java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault())
+        val recent = windows.takeLast(3)
+        val text = recent.joinToString("、") { window ->
+            "${formatter.format(java.util.Date(window.first))}-${formatter.format(java.util.Date(window.second))}"
+        }
+        return context.getString(R.string.character_role_scoped_hint, text)
     }
 
     private suspend fun buildPackageWarmupBlock(
@@ -1385,6 +1442,10 @@ object AIMessageManager {
         targetRoleName: String? = null,
         groupOrchestrationMode: Boolean = false,
         disabledRoleNames: Set<String> = emptySet()
+        // 角色独立视野（被禁用过的角色）：它自己的专属总结 + 隐藏"不在场"区间的消息
+        roleScopedSummary: String? = null,
+        hiddenWindows: List<Pair<Long, Long>> = emptyList(),
+        roleScopedHint: String? = null
     ): List<PromptTurn> {
         val totalStartTime = messageTimingNow()
         // 1. 找到最后一条总结消息，只处理总结之后的消息
@@ -1393,6 +1454,20 @@ object AIMessageManager {
             messages.subList(lastSummaryIndex, messages.size)
         } else {
             messages
+        }
+        // 角色独立视野：它被禁用期间"不在场"的消息对它永久不可见，
+        // 并且不再使用全群共享的总结（改用该角色自己的专属总结，见函数尾部）
+        val isRoleScopedView = roleScopedSummary != null || hiddenWindows.isNotEmpty()
+        val scopedMessages: List<ChatMessage> = if (isRoleScopedView) {
+            relevantMessages.filter { message ->
+                message.sender != "summary" &&
+                    hiddenWindows.none { window ->
+                        message.timestamp >= window.first &&
+                            message.timestamp <= window.second
+                    }
+            }
+        } else {
+            relevantMessages
         }
 
         // 2. 判断是否启用角色隔离模式
@@ -1407,7 +1482,7 @@ object AIMessageManager {
 
         // 4. 处理每条消息（群聊场景下排除被禁用角色）
         val skipDisabledRoles = groupOrchestrationMode && disabledRoleNames.isNotEmpty()
-        val processedMessages = relevantMessages
+        val processedMessages = scopedMessages
             .filter { it.sender == "user" || it.sender == "ai" || it.sender == "summary" }
             .filter { message ->
                 !(skipDisabledRoles && message.sender == "ai" && message.roleName.trim() in disabledRoleNames)
@@ -1440,7 +1515,18 @@ object AIMessageManager {
             startTimeMs = totalStartTime,
             details = "source=${messages.size}, relevant=${relevantMessages.size}, result=${processedMessages.size}, assistant=$assistantCount, user=$userCount, splitByRole=$splitByRole, roleScoped=$isRoleScopedMode, groupOrchestration=$groupOrchestrationMode"
         )
-        return processedMessages
+        if (!isRoleScopedView) {
+            return processedMessages
+        }
+        // 角色独立视野：先给出它自己的专属总结，再告知它"中间不在场"
+        val scopedHead = mutableListOf<PromptTurn>()
+        roleScopedSummary?.let { summary ->
+            scopedHead.add(PromptTurn(kind = PromptTurnKind.SUMMARY, content = summary))
+        }
+        roleScopedHint?.let { hint ->
+            scopedHead.add(PromptTurn(kind = PromptTurnKind.SYSTEM, content = hint))
+        }
+        return scopedHead + processedMessages
     }
 
     private fun processAiMessage(
