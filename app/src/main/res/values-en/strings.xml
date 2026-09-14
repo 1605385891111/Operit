@@ -8464,4 +8464,6 @@
     <string name="nav_group_disabled_characters">Disabled Characters</string>
     <string name="character_disabled_mark">OFF</string>
     <string name="character_all_disabled_in_group">All characters in this group are disabled, so no one can reply. Please re-enable them in the drawer.</string>
+    <string name="character_disabled_skip_reply">This character is globally disabled, so no reply was generated. You can re-enable it in the drawer.</string>
+    <string name="character_role_scoped_hint">You were disabled during %1$s, so you did not take part in that part of the conversation.</string>
 </resources>
