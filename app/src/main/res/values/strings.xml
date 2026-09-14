@@ -8448,4 +8448,5 @@
     <string name="codex_reset_after_clock">%1$02d:%2$02d 后重置</string>
     <string name="nav_group_disabled_characters">禁用角色</string>
     <string name="character_disabled_mark">禁</string>
+    <string name="character_all_disabled_in_group">当前群聊的角色已全部被禁用，没有角色可以回复。请在抽屉的「禁用角色」中解禁。</string>
 </resources>
