@@ -2090,6 +2090,38 @@ class MessageCoordinationDelegate(
     }
 
     /** 从当前聊天绑定的模型配置中读取总结配置。 */
+    /**
+     * 手动「插入总结」之后，同样为"被禁用过的角色"维护独立记忆链。
+     * 自动总结有两条入口会调用 generateRoleScopedSummaries，手动总结这条以前漏了——
+     * 结果只用手动总结的用户，被禁角色永远不会生成自己的专属总结。
+     */
+    suspend fun generateRoleScopedSummariesForChat(
+        enhancedAiService: EnhancedAIService,
+        chatId: String,
+        summaryConfig: ConversationSummaryConfig
+    ) {
+        val groupMemberIds =
+            resolveTargetGroupForChat(chatId)
+                ?.members
+                ?.map { member -> member.characterCardId }
+                .orEmpty()
+        if (groupMemberIds.isEmpty()) return
+        val messages = chatHistoryDelegate.getChatHistory(chatId)
+        if (messages.isEmpty()) return
+        runCatching {
+                AIMessageManager.generateRoleScopedSummaries(
+                    enhancedAiService = enhancedAiService,
+                    chatId = chatId,
+                    messages = messages,
+                    characterCardIds = groupMemberIds,
+                    summaryConfig = summaryConfig
+                )
+            }
+            .onFailure { error ->
+                AppLogger.e(TAG, "角色独立记忆总结失败(手动): ${error.message}", error)
+            }
+    }
+
     suspend fun readSummaryConfig(): ConversationSummaryConfig {
         return try {
             val functionalConfigManager = FunctionalConfigManager(context)
