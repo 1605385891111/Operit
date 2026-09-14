@@ -576,6 +576,8 @@ class CharacterCardManager private constructor(private val context: Context) {
             }
             
             // 同步清理该角色的禁用记录
+            // 清理禁用时间窗（角色专属总结按会话存放，随卡片删除后不再被引用）
+            preferences.remove(disabledWindowsKey(id))
             val disabledIds = preferences[DISABLED_CHARACTER_IDS] ?: emptySet()
             if (disabledIds.contains(id)) {
                 preferences[DISABLED_CHARACTER_IDS] = disabledIds - id
@@ -741,9 +743,78 @@ class CharacterCardManager private constructor(private val context: Context) {
     suspend fun setCharacterDisabled(characterCardId: String, disabled: Boolean) {
         dataStore.edit { preferences ->
             val current = preferences[DISABLED_CHARACTER_IDS] ?: emptySet()
+            val wasDisabled = current.contains(characterCardId)
             preferences[DISABLED_CHARACTER_IDS] =
                 if (disabled) current + characterCardId else current - characterCardId
+            // 记录"视野隔离"时间窗：被禁用期间该角色不在场，那段对话对它永久不可见
+            val windowKey = disabledWindowsKey(characterCardId)
+            if (disabled && !wasDisabled) {
+                val existing = preferences[windowKey] ?: emptySet()
+                if (existing.none { entry -> entry.endsWith("|0") }) {
+                    preferences[windowKey] = existing + "${System.currentTimeMillis()}|0"
+                }
+            } else if (!disabled && wasDisabled) {
+                val existing = preferences[windowKey] ?: emptySet()
+                preferences[windowKey] = existing.map { entry ->
+                    val parts = entry.split("|")
+                    if (parts.size == 2 && parts[1] == "0") {
+                        "${parts[0]}|${System.currentTimeMillis()}"
+                    } else {
+                        entry
+                    }
+                }.toSet()
+            }
         }
+    }
+
+    // ===== 角色独立记忆链（被禁过的角色：禁用期间的对话对它永久不可见）=====
+    /** 角色被禁用的时间窗，元素格式 "start|end"，end=0 表示仍在禁用中 */
+    private fun disabledWindowsKey(characterCardId: String) =
+        stringSetPreferencesKey("character_disabled_windows_$characterCardId")
+
+    private fun roleSummaryKey(chatId: String, characterCardId: String) =
+        stringPreferencesKey("role_summary_${chatId}_$characterCardId")
+
+    private fun roleSummaryTsKey(chatId: String, characterCardId: String) =
+        longPreferencesKey("role_summary_ts_${chatId}_$characterCardId")
+
+    /** 该角色是否曾被禁用过（有记录说明它的记忆链已与全群分离） */
+    suspend fun hasDisabledWindows(characterCardId: String): Boolean =
+        (dataStore.data.first()[disabledWindowsKey(characterCardId)] ?: emptySet()).isNotEmpty()
+
+    /** 禁用时间窗；仍未解禁的窗口以当前时间作为右端点 */
+    suspend fun getDisabledWindows(characterCardId: String): List<Pair<Long, Long>> {
+        val entries = dataStore.data.first()[disabledWindowsKey(characterCardId)] ?: emptySet()
+        val now = System.currentTimeMillis()
+        return entries.mapNotNull { entry ->
+            val parts = entry.split("|")
+            val start = parts.getOrNull(0)?.toLongOrNull() ?: return@mapNotNull null
+            val rawEnd = parts.getOrNull(1)?.toLongOrNull() ?: 0L
+            val end = if (rawEnd <= 0L) now else rawEnd
+            start to end
+        }.sortedBy { window -> window.first }
+    }
+
+    /** 保存角色专属总结（含它已覆盖到的时间点） */
+    suspend fun saveRoleSummary(
+        chatId: String,
+        characterCardId: String,
+        summary: String,
+        coveredUntil: Long
+    ) {
+        dataStore.edit { preferences ->
+            preferences[roleSummaryKey(chatId, characterCardId)] = summary
+            preferences[roleSummaryTsKey(chatId, characterCardId)] = coveredUntil
+        }
+    }
+
+    /** 读取角色专属总结：内容 + 已覆盖到的时间点 */
+    suspend fun getRoleSummary(chatId: String, characterCardId: String): Pair<String, Long>? {
+        val snapshot = dataStore.data.first()
+        val text = snapshot[roleSummaryKey(chatId, characterCardId)] ?: return null
+        val covered = snapshot[roleSummaryTsKey(chatId, characterCardId)] ?: 0L
+        if (text.isBlank()) return null
+        return text to covered
     }
 
     /**
