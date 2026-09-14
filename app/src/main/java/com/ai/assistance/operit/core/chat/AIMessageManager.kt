@@ -1171,7 +1171,11 @@ object AIMessageManager {
             val previous = characterCardManager.getRoleSummary(chatId, characterCardId)
             val coveredUntil = previous?.second ?: 0L
             val visibleMessages = messages.filter { message ->
-                message.timestamp > coveredUntil &&
+                // 专属总结只能建立在真实对话消息上：共享总结是累积式的，
+                // 即使它的时间戳落在禁用窗口之外，内容也可能已经包含该角色
+                // "不在场"的那段，把它当原料喂进来会造成记忆穿透。
+                message.sender != "summary" &&
+                    message.timestamp > coveredUntil &&
                     windows.none { window ->
                         message.timestamp >= window.first && message.timestamp <= window.second
                     }
@@ -1471,16 +1475,15 @@ object AIMessageManager {
         // 角色独立视野：它被禁用期间"不在场"的消息对它永久不可见，
         // 并且不再使用全群共享的总结（改用该角色自己的专属总结，见函数尾部）
         val isRoleScopedView = roleScopedSummary != null || hiddenWindows.isNotEmpty()
-        // 兜底：还没有专属总结时，若那条共享总结并不落在它「不在场」的区间里
-        // （即它不含被隔离的内容），就继续沿用——否则它会连更早的历史一起丢掉。
+        // 兜底：还没有专属总结时，沿用共享总结以避免它把更早的历史整段丢掉。
+        // 但只有"第一次不在场之前"生成的共享总结才一定不含被隔离的内容——
+        // 共享总结是累积式的，仅仅看它自己的时间戳是否落在窗口内并不足以判断安全。
         val lastSummaryMessage = messages.getOrNull(lastSummaryIndex)
+        val earliestHiddenStart = hiddenWindows.minOfOrNull { window -> window.first }
         val keepSharedSummary =
             roleScopedSummary == null &&
                 lastSummaryMessage != null &&
-                hiddenWindows.none { window ->
-                    lastSummaryMessage.timestamp >= window.first &&
-                        lastSummaryMessage.timestamp <= window.second
-                }
+                (earliestHiddenStart == null || lastSummaryMessage.timestamp < earliestHiddenStart)
         val scopedMessages: List<ChatMessage> = if (isRoleScopedView) {
             // 起点用"专属总结已覆盖到的时间点"：它与共享总结的位置可能错位，
             // 以共享总结为起点会让角色漏掉中间那段它本该看到的对话。
