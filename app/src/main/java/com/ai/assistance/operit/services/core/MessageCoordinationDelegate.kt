@@ -797,9 +797,9 @@ class MessageCoordinationDelegate(
             TAG,
             "回答规划: plan=${group.id}, members=${group.members.size}, activeMembers=${orderedMembers.size}"
         )
-        if (orderedMembers.isEmpty()) {
-            return false
-        }
+        // 注意：全员被禁用时不能在这里返回 false。
+        // 调用方收到 false 会回退到普通发送路径，而那条路径不检查禁用名单，
+        // 结果是被禁用的角色仍然照常回复。真正的终止逻辑放在用户消息入库之后。
 
         val existingBinding = chatHistoryDelegate.chatHistories.value
             .firstOrNull { it.id == chatId }
@@ -878,6 +878,20 @@ class MessageCoordinationDelegate(
         }
 
         var userMessageInsertedForCurrentUserTurn = true
+        if (orderedMembers.isEmpty()) {
+            // 全员被禁用：用户消息已入库、标题已生成，本轮不再产生任何回复
+            AppLogger.d(TAG, "群组编排终止:全部成员均已被禁用")
+            val allDisabledMessage = context.getString(R.string.character_all_disabled_in_group)
+            uiStateDelegate.showErrorMessage(allDisabledMessage)
+            messageProcessingDelegate.setInputProcessingStateForChat(
+                chatId,
+                InputProcessingState.Completed
+            )
+            attachmentDelegate.clearAttachments()
+            uiBridge.resetAttachmentPanelState()
+            uiBridge.clearReplyToMessage()
+            return true
+        }
         val memberCardsById = orderedMembers
             .associate { member ->
                 member.characterCardId to runCatching { characterCardManager.getCharacterCard(member.characterCardId) }.getOrNull()
