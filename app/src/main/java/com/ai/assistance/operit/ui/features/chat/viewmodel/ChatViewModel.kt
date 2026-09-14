@@ -918,6 +918,15 @@ class ChatViewModel(private val context: Context) : ViewModel() {
                         afterTimestamp = afterTimestamp,
                     )
 
+                    // 群聊：手动总结同样要为被禁用过的角色维护独立记忆链
+                    runCatching {
+                        messageCoordinationDelegate.generateRoleScopedSummariesForChat(
+                            enhancedAiService = enhancedAiService!!,
+                            chatId = currentChatId,
+                            summaryConfig = summaryConfig
+                        )
+                    }
+
                     messageCoordinationDelegate.refreshStableContextWindow(chatId = currentChatId)
 
                     uiStateDelegate.showToast(context.getString(R.string.chat_summary_inserted))
