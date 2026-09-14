@@ -95,6 +95,8 @@ class CharacterCardManager private constructor(private val context: Context) {
         private val DISABLED_CHARACTER_IDS = stringSetPreferencesKey("disabled_character_ids")
         // 被禁用角色在总结中被跳过的未结算消息，元素格式 "chatId|characterCardId|timestamp"
         private val PENDING_REINCLUDE = stringSetPreferencesKey("pending_reinclude")
+        // 按会话隔离的"不在场"时间窗前缀
+        private const val MEMORY_WINDOWS_PREFIX = "character_memory_windows_"
 
         // 默认角色卡ID
         const val DEFAULT_CHARACTER_CARD_ID = "default_character"
@@ -578,6 +580,16 @@ class CharacterCardManager private constructor(private val context: Context) {
             // 同步清理该角色的禁用记录
             // 清理禁用时间窗（角色专属总结按会话存放，随卡片删除后不再被引用）
             preferences.remove(disabledWindowsKey(id))
+            preferences.remove(disabledSinceKey(id))
+            val deletedWindowSuffix = "_$id"
+            preferences
+                .asMap()
+                .keys
+                .filter { key ->
+                    key.name.startsWith(MEMORY_WINDOWS_PREFIX) &&
+                        key.name.endsWith(deletedWindowSuffix)
+                }
+                .forEach { key -> preferences.remove(stringSetPreferencesKey(key.name)) }
             val disabledIds = preferences[DISABLED_CHARACTER_IDS] ?: emptySet()
             if (disabledIds.contains(id)) {
                 preferences[DISABLED_CHARACTER_IDS] = disabledIds - id
@@ -739,6 +751,25 @@ class CharacterCardManager private constructor(private val context: Context) {
 
     /** 已禁用角色的名字集合，用于与 ChatMessage.roleName 比对 */
     suspend fun getDisabledRoleNames(): Set<String> = disabledRoleNamesFlow.first()
+    /**
+     * 供"上下文过滤"使用的禁用角色名：只保留"名字唯一属于被禁用角色"的项。
+     * ChatMessage 里只有 roleName、没有角色卡 id，遇到同名的另一个角色就无法区分；
+     * 这种情况下宁可不过滤，也不要误伤没被禁用的那个同名角色。
+     */
+    suspend fun getUnambiguousDisabledRoleNames(): Set<String> {
+        val ids = dataStore.data.first()[DISABLED_CHARACTER_IDS] ?: emptySet()
+        if (ids.isEmpty()) return emptySet()
+        val cards = getAllCharacterCards()
+        val disabledNames =
+            cards
+                .filter { card -> card.id in ids }
+                .mapNotNull { card -> card.name.trim().takeIf { name -> name.isNotBlank() } }
+                .toSet()
+        if (disabledNames.isEmpty()) return emptySet()
+        val otherNames =
+            cards.filterNot { card -> card.id in ids }.map { card -> card.name.trim() }.toSet()
+        return disabledNames - otherNames
+    }
 
     suspend fun setCharacterDisabled(characterCardId: String, disabled: Boolean) {
         dataStore.edit { preferences ->
@@ -746,23 +777,36 @@ class CharacterCardManager private constructor(private val context: Context) {
             val wasDisabled = current.contains(characterCardId)
             preferences[DISABLED_CHARACTER_IDS] =
                 if (disabled) current + characterCardId else current - characterCardId
-            // 记录"视野隔离"时间窗：被禁用期间该角色不在场，那段对话对它永久不可见
-            val windowKey = disabledWindowsKey(characterCardId)
+            // 全局只记"禁不禁"这个开关；真正影响记忆的"不在场时间窗"按会话各自记账，
+            // 在该角色真正参与某个会话时惰性落盘（见 getDisabledWindows(chatId, id)）
             if (disabled && !wasDisabled) {
-                val existing = preferences[windowKey] ?: emptySet()
-                if (existing.none { entry -> entry.endsWith("|0") }) {
-                    preferences[windowKey] = existing + "${System.currentTimeMillis()}|0"
-                }
+                preferences[disabledSinceKey(characterCardId)] = System.currentTimeMillis()
             } else if (!disabled && wasDisabled) {
-                val existing = preferences[windowKey] ?: emptySet()
-                preferences[windowKey] = existing.map { entry ->
-                    val parts = entry.split("|")
-                    if (parts.size == 2 && parts[1] == "0") {
-                        "${parts[0]}|${System.currentTimeMillis()}"
-                    } else {
-                        entry
+                // 解禁：把该角色在所有会话里仍开着的窗口一并闭合
+                val now = System.currentTimeMillis()
+                val windowSuffix = "_$characterCardId"
+                preferences
+                    .asMap()
+                    .keys
+                    .filter { key ->
+                        key.name.startsWith(MEMORY_WINDOWS_PREFIX) && key.name.endsWith(windowSuffix)
                     }
-                }.toSet()
+                    .forEach { key ->
+                        val typedKey = stringSetPreferencesKey(key.name)
+                        val existing = preferences[typedKey] ?: emptySet()
+                        preferences[typedKey] =
+                            existing
+                                .map { entry ->
+                                    val parts = entry.split("|")
+                                    if (parts.size == 2 && parts[1] == "0") {
+                                        "${parts[0]}|$now"
+                                    } else {
+                                        entry
+                                    }
+                                }
+                                .toSet()
+                    }
+                preferences.remove(disabledSinceKey(characterCardId))
             }
         }
     }
@@ -771,6 +815,16 @@ class CharacterCardManager private constructor(private val context: Context) {
     /** 角色被禁用的时间窗，元素格式 "start|end"，end=0 表示仍在禁用中 */
     private fun disabledWindowsKey(characterCardId: String) =
         stringSetPreferencesKey("character_disabled_windows_$characterCardId")
+    /** 该角色当前这一轮禁用的起始时刻（未处于禁用中时为 0） */
+    private fun disabledSinceKey(characterCardId: String) =
+        longPreferencesKey("character_disabled_since_$characterCardId")
+    /**
+     * 按会话隔离的"不在场"时间窗。
+     * 禁用状态是全局的（哪个会话都不再回复），但"记忆隔离区间"必须按会话各自记账，
+     * 否则一个会话里的禁用会污染同一个角色在别的会话里的记忆。
+     */
+    private fun memoryWindowsKey(chatId: String, characterCardId: String) =
+        stringSetPreferencesKey("character_memory_windows_${chatId}_$characterCardId")
 
     private fun roleSummaryKey(chatId: String, characterCardId: String) =
         stringPreferencesKey("role_summary_${chatId}_$characterCardId")
@@ -782,9 +836,27 @@ class CharacterCardManager private constructor(private val context: Context) {
     suspend fun hasDisabledWindows(characterCardId: String): Boolean =
         (dataStore.data.first()[disabledWindowsKey(characterCardId)] ?: emptySet()).isNotEmpty()
 
-    /** 禁用时间窗；仍未解禁的窗口以当前时间作为右端点 */
-    suspend fun getDisabledWindows(characterCardId: String): List<Pair<Long, Long>> {
-        val entries = dataStore.data.first()[disabledWindowsKey(characterCardId)] ?: emptySet()
+    /**
+     * 该角色在指定会话里的"不在场"时间窗；仍未解禁的窗口以当前时间作为右端点。
+     * 若角色此刻仍在禁用中，会为这个会话补一个"开着"的窗口（起点=本轮禁用起始时刻）。
+     */
+    suspend fun getDisabledWindows(
+        chatId: String,
+        characterCardId: String
+    ): List<Pair<Long, Long>> {
+        val windowKey = memoryWindowsKey(chatId, characterCardId)
+        val snapshot = dataStore.data.first()
+        var entries = snapshot[windowKey] ?: emptySet()
+        val disabledIds = snapshot[DISABLED_CHARACTER_IDS] ?: emptySet()
+        if (characterCardId in disabledIds) {
+            val hasOpenWindow = entries.any { entry -> entry.endsWith("|0") }
+            if (!hasOpenWindow) {
+                val since = snapshot[disabledSinceKey(characterCardId)] ?: 0L
+                val start = if (since > 0L) since else System.currentTimeMillis()
+                entries = entries + "$start|0"
+                dataStore.edit { preferences -> preferences[windowKey] = entries }
+            }
+        }
         val now = System.currentTimeMillis()
         return entries.mapNotNull { entry ->
             val parts = entry.split("|")
