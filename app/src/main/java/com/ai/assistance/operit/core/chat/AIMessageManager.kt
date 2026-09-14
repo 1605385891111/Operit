@@ -382,7 +382,8 @@ object AIMessageManager {
 
         val buildMemoryStartTime = messageTimingNow()
         // 角色独立视野：被禁用过的角色使用它的专属总结，并隐藏"不在场"区间的消息
-        val roleDisabledWindows = characterCardManager.getDisabledWindows(roleCardId)
+        val roleDisabledWindows =
+            characterCardManager.getDisabledWindows(chatKey, roleCardId)
         val roleScopedSummaryState = if (roleDisabledWindows.isEmpty()) {
             null
         } else {
@@ -582,7 +583,11 @@ object AIMessageManager {
                 targetRoleName = currentRoleName,
                 groupOrchestrationMode = groupOrchestrationMode,
                 disabledRoleNames =
-                    if (groupOrchestrationMode) characterCardManager.getDisabledRoleNames() else emptySet()
+                    if (groupOrchestrationMode) {
+                        characterCardManager.getUnambiguousDisabledRoleNames()
+                    } else {
+                        emptySet()
+                    }
             )
         val maxImageHistoryUserTurns = apiPreferences.maxImageHistoryUserTurnsFlow.first()
         val maxMediaHistoryUserTurns = apiPreferences.maxMediaHistoryUserTurnsFlow.first()
@@ -723,7 +728,11 @@ object AIMessageManager {
         val disabledCharacterIds =
             if (isGroupChat) characterCardManager.getDisabledCharacterIds() else emptySet()
         val disabledRoleNames =
-            if (isGroupChat) characterCardManager.getDisabledRoleNames() else emptySet()
+            if (isGroupChat) {
+                characterCardManager.getUnambiguousDisabledRoleNames()
+            } else {
+                emptySet()
+            }
         // 说明：被禁用角色的"视野隔离"由它的专属总结负责（generateRoleScopedSummaries）。
         // 这里不再对被禁角色的历史消息做过滤/冻结登记：
         // "禁用"表示它从此不再参与，而不是把它从别人的记忆里抹掉——抹掉会让上下文断裂。
@@ -1154,7 +1163,7 @@ object AIMessageManager {
     ): Int {
         var generated = 0
         characterCardIds.distinct().forEach { characterCardId ->
-            val windows = characterCardManager.getDisabledWindows(characterCardId)
+            val windows = characterCardManager.getDisabledWindows(chatId, characterCardId)
             if (windows.isEmpty()) {
                 // 从未被禁用过：与全群共用同一条记忆链
                 return@forEach
@@ -1462,6 +1471,16 @@ object AIMessageManager {
         // 角色独立视野：它被禁用期间"不在场"的消息对它永久不可见，
         // 并且不再使用全群共享的总结（改用该角色自己的专属总结，见函数尾部）
         val isRoleScopedView = roleScopedSummary != null || hiddenWindows.isNotEmpty()
+        // 兜底：还没有专属总结时，若那条共享总结并不落在它「不在场」的区间里
+        // （即它不含被隔离的内容），就继续沿用——否则它会连更早的历史一起丢掉。
+        val lastSummaryMessage = messages.getOrNull(lastSummaryIndex)
+        val keepSharedSummary =
+            roleScopedSummary == null &&
+                lastSummaryMessage != null &&
+                hiddenWindows.none { window ->
+                    lastSummaryMessage.timestamp >= window.first &&
+                        lastSummaryMessage.timestamp <= window.second
+                }
         val scopedMessages: List<ChatMessage> = if (isRoleScopedView) {
             // 起点用"专属总结已覆盖到的时间点"：它与共享总结的位置可能错位，
             // 以共享总结为起点会让角色漏掉中间那段它本该看到的对话。
@@ -1471,7 +1490,7 @@ object AIMessageManager {
                 relevantMessages
             }
             scopedBase.filter { message ->
-                message.sender != "summary" &&
+                (message.sender != "summary" || keepSharedSummary) &&
                     hiddenWindows.none { window ->
                         message.timestamp >= window.first &&
                             message.timestamp <= window.second
