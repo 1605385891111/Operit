@@ -11,6 +11,8 @@ import com.ai.assistance.operit.core.chat.hooks.SummaryHookRegistry
 import com.ai.assistance.operit.core.chat.hooks.buildActivePromptHookMetadata
 import com.ai.assistance.operit.core.chat.hooks.toPromptTurns
 import com.ai.assistance.operit.core.config.SystemPromptConfig
+import com.ai.assistance.operit.core.config.ThinkingContractPrompts
+import com.ai.assistance.operit.data.model.ApiProviderType
 import com.ai.assistance.operit.core.tools.climode.ToolExposureMode
 import com.ai.assistance.operit.R
 import com.ai.assistance.operit.core.tools.AIToolHandler
@@ -484,7 +486,8 @@ class ConversationService(
             memorySpaceIdOverride: String? = null,
             dispatchHistoryHooks: (PromptHookContext) -> PromptHookContext = PromptHookRegistry::dispatchPromptHistoryHooks,
             dispatchSystemPromptComposeHooks: (PromptHookContext) -> PromptHookContext = PromptHookRegistry::dispatchSystemPromptComposeHooks,
-            dispatchToolPromptComposeHooks: (PromptHookContext) -> PromptHookContext = PromptHookRegistry::dispatchToolPromptComposeHooks
+            dispatchToolPromptComposeHooks: (PromptHookContext) -> PromptHookContext = PromptHookRegistry::dispatchToolPromptComposeHooks,
+            thinkingContractProviderType: ApiProviderType? = null
     ): List<PromptTurn> {
         val activePromptMetadata = buildActivePromptHookMetadata(context, chatId, roleCardId)
         val beforeContext =
@@ -617,9 +620,21 @@ class ConversationService(
                 AppLogger.d("petRules", avatarMoodRulesText)
 
                 // 构建最终的系统提示词
+// 思考通道契约：让思考链以角色本人的口吻进行（思考模式 + 活跃角色卡 + 支持的 provider 才注入）
+val thinkingContractText = runCatching {
+                    if (!apiPreferences.enableThinkingModeFlow.first()) return@runCatching ""
+                    val contractCard = activeCard ?: return@runCatching ""
+                    if (!ThinkingContractPrompts.isSupported(thinkingContractProviderType)) return@runCatching ""
+                    ThinkingContractPrompts.build(
+                        useEnglish = useEnglish,
+                        characterName = contractCard.name,
+                        toolsEnabled = enableTools
+                    )
+                }.getOrElse { "" }
                 val finalSystemPrompt = buildString {
                     append(avatarMoodRulesText)
                     append(systemPrompt)
+                    append(thinkingContractText)
                     if (proxyRolePrompt.isNotEmpty()) {
                         append("\n\n<assistant_role source=\"proxy_character_card\">\n")
                         append(proxyRolePrompt)
