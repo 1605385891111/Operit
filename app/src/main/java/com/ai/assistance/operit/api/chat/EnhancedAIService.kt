@@ -2688,6 +2688,7 @@ class EnhancedAIService private constructor(private val context: Context) {
                 dispatchHistoryHooks,
                 dispatchSystemPromptComposeHooks,
                 dispatchToolPromptComposeHooks
+                config.apiProviderType
         )
     }
 
