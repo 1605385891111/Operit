@@ -52,7 +52,6 @@ fun WorkflowListScreen(
     viewModel: WorkflowViewModel = viewModel()
 ) {
     val context = LocalContext.current
-    val snackbarHostState = remember { SnackbarHostState() }
 
     var showCreateDialog by remember { mutableStateOf(false) }
     var showTemplateDialog by remember { mutableStateOf(false) }
@@ -77,16 +76,6 @@ fun WorkflowListScreen(
     val selectedCount = selectedWorkflowIds.size
 
     CustomScaffold(
-        snackbarHost = {
-            SnackbarHost(snackbarHostState) { data ->
-                Snackbar(
-                    modifier = Modifier.padding(16.dp),
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    snackbarData = data
-                )
-            }
-        },
         floatingActionButton = {
             Column(
                 horizontalAlignment = Alignment.End,
@@ -296,8 +285,7 @@ fun WorkflowListScreen(
             // 错误提示
             viewModel.error?.let { error ->
                 LaunchedEffect(error) {
-                    snackbarHostState.currentSnackbarData?.dismiss()
-                    snackbarHostState.showSnackbar(error)
+                    // 可以显示Snackbar
                     viewModel.clearError()
                 }
             }

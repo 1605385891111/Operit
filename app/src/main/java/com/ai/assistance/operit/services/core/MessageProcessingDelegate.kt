@@ -318,9 +318,6 @@ class MessageProcessingDelegate(
         val configId = functionalConfigManager.getConfigIdForFunction(FunctionType.CHAT)
         val currentModelConfig = modelConfigManager.getModelConfigFlow(configId).first()
         val enableDirectImageProcessing = currentModelConfig.enableDirectImageProcessing
-        val enableDirectFileProcessing =
-            currentModelConfig.apiProviderType == ApiProviderType.OPENAI_CODEX &&
-                enableDirectImageProcessing
         val enableDirectAudioProcessing = currentModelConfig.enableDirectAudioProcessing
         val enableDirectVideoProcessing = currentModelConfig.enableDirectVideoProcessing
 
@@ -332,7 +329,6 @@ class MessageProcessingDelegate(
             workspaceEnv = workspaceEnv,
             replyToMessage = replyToMessage,
             enableDirectImageProcessing = enableDirectImageProcessing,
-            enableDirectFileProcessing = enableDirectFileProcessing,
             enableDirectAudioProcessing = enableDirectAudioProcessing,
             enableDirectVideoProcessing = enableDirectVideoProcessing,
             chatId = chatId,
@@ -759,9 +755,6 @@ class MessageProcessingDelegate(
             val loadModelConfigStartTime = messageTimingNow()
             val currentModelConfig = modelConfigManager.getModelConfigFlow(configId).first()
             val enableDirectImageProcessing = currentModelConfig.enableDirectImageProcessing
-            val enableDirectFileProcessing =
-                currentModelConfig.apiProviderType == ApiProviderType.OPENAI_CODEX &&
-                    enableDirectImageProcessing
             val enableDirectAudioProcessing = currentModelConfig.enableDirectAudioProcessing
             val enableDirectVideoProcessing = currentModelConfig.enableDirectVideoProcessing
             AppLogger.d(TAG, "直接图片处理状态: $enableDirectImageProcessing (配置ID: $configId)")
@@ -782,7 +775,6 @@ class MessageProcessingDelegate(
                 workspaceEnv = workspaceEnv,
                 replyToMessage = replyToMessage,
                 enableDirectImageProcessing = enableDirectImageProcessing,
-                enableDirectFileProcessing = enableDirectFileProcessing,
                 enableDirectAudioProcessing = enableDirectAudioProcessing,
                 enableDirectVideoProcessing = enableDirectVideoProcessing,
                 chatId = chatId,
@@ -882,7 +874,6 @@ class MessageProcessingDelegate(
             val activeChatId = chatId
             var serviceForTurnComplete: EnhancedAIService? = null
             var shouldNotifyTurnComplete = false
-            var shouldFinalizeInterruptedMessage = false
             var finalInputStateAfterSend: EnhancedInputProcessingState? = null
             var isWaifuModeEnabled = false
             var didStreamAutoRead = false
@@ -1487,7 +1478,6 @@ class MessageProcessingDelegate(
                     cancellationToPropagate = e
                 } else {
                     AppLogger.e(TAG, "发送消息时出错", e)
-                    shouldFinalizeInterruptedMessage = true
                     setChatInputProcessingState(
                         chatId,
                         EnhancedInputProcessingState.Error(context.getString(R.string.message_send_failed, e.message))
@@ -1496,18 +1486,8 @@ class MessageProcessingDelegate(
                 }
             } finally {
                 val finalizeMessageStartTime = messageTimingNow()
-                val interruptedTurn =
-                    if (shouldFinalizeInterruptedMessage) chatRuntime.activeStreamingTurn else null
                 val deferTurnCompleteToAsyncJob =
-                    if (interruptedTurn != null && chatId != null) {
-                        // Network errors can arrive after partial output; do not overwrite it as a completed reply.
-                        detachStreamingAiMessage(
-                            chatId = chatId,
-                            activeTurn = interruptedTurn,
-                            snapshot = readCurrentTurnCancellationSnapshot(chatId),
-                        )
-                        false
-                    } else if (cancellationToPropagate == null) {
+                    if (cancellationToPropagate == null) {
                         finalizeMessageAndNotify(
                             chatId = chatId,
                             activeChatId = activeChatId,

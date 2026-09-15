@@ -13,14 +13,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Error
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Web
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.BlendMode
@@ -29,18 +27,16 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.rememberNestedScrollInteropConnection
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.viewinterop.AndroidView
-import coil.compose.SubcomposeAsyncImage
 import com.ai.assistance.operit.R
 import com.ai.assistance.operit.ui.common.animations.SimpleAnimatedVisibility
 import com.ai.assistance.operit.ui.common.markdown.DefaultXmlRenderer
@@ -48,14 +44,10 @@ import com.ai.assistance.operit.ui.common.markdown.StreamMarkdownRenderer
 import com.ai.assistance.operit.ui.common.markdown.XmlContentRenderer
 import com.ai.assistance.operit.ui.common.markdown.XmlRenderPluginRegistry
 import com.ai.assistance.operit.ui.common.rememberLocal
-import com.ai.assistance.operit.util.AppLogger
 import com.ai.assistance.operit.util.ChatUtils
 import com.ai.assistance.operit.util.ChatMarkupRegex
 import com.ai.assistance.operit.util.stream.Stream
 import com.ai.assistance.operit.util.stream.stream
-import java.io.StringReader
-import org.xmlpull.v1.XmlPullParser
-import org.xmlpull.v1.XmlPullParserFactory
 
 /** 支持多种 XML 标签的自定义渲染器 包含高效的前缀检测，直接解析标签类型 */
 private const val TOOL_PARAM_TOKEN_THRESHOLD = 50
@@ -83,26 +75,6 @@ class CustomXmlRenderer(
         val toolName: String,
         val isSuccess: Boolean,
         val resultContent: String,
-    )
-
-    private data class SearchRenderState(
-        val provider: String,
-        val action: String,
-        val status: String,
-        val queries: List<String>,
-        val sources: List<SearchSourceRenderState>,
-        val bodyText: String,
-        val isStructured: Boolean,
-    )
-
-    private data class SearchSourceRenderState(
-        val title: String,
-        val url: String,
-        val faviconUrl: String,
-        val host: String,
-        val siteName: String,
-        val displayName: String,
-        val attributes: Map<String, String>,
     )
 
     @Composable
@@ -235,7 +207,7 @@ class CustomXmlRenderer(
     private fun shouldHideHiddenMeta(content: String, tagName: String?): Boolean {
         return tagName == "meta" &&
             Regex(
-                """\bprovider\s*=\s*["'](?:gemini:thought_signature|openai:responses_reasoning|openai:responses_output_item)["']""",
+                """\bprovider\s*=\s*["'](?:gemini:thought_signature|openai:responses_reasoning)["']""",
                 RegexOption.IGNORE_CASE
             )
                 .containsMatchIn(content)
@@ -319,19 +291,24 @@ class CustomXmlRenderer(
         return if (targetToolName.isNotBlank()) targetToolName else toolName
     }
 
-    /** 渲染 <search> 标签内容 */
+    /** 渲染 <search> 标签内容 (Google Search Grounding 来源) */
     @Composable
     private fun renderSearchContent(content: String, modifier: Modifier, textColor: Color) {
-        val renderState = remember(content) { parseSearchRenderState(content) }
+        val startTag = "<search>"
+        val endTag = "</search>"
+        val startIndex = content.indexOf(startTag) + startTag.length
 
-        if (renderState.isStructured) {
-            if (renderState.sources.isNotEmpty() || renderState.queries.isNotEmpty()) {
-                StructuredSearchBody(renderState, textColor, modifier)
-            }
-            return
-        }
+        // 提取搜索来源内容
+        val searchText =
+                if (content.contains(endTag)) {
+                    val endIndex = content.lastIndexOf(endTag)
+                    content.substring(startIndex, endIndex).trim()
+                } else {
+                    // 没有结束标签，直接使用startIndex后的所有内容
+                    content.substring(startIndex).trim()
+                }
 
-        var expanded by remember { mutableStateOf(false) }
+        var expanded by remember { mutableStateOf(false) }  // 默认收起
 
         val rotation by
             animateFloatAsState(
@@ -340,7 +317,7 @@ class CustomXmlRenderer(
                 label = "arrowRotation"
             )
 
-        Column(modifier = modifier.fillMaxWidth().padding(horizontal = 0.dp, vertical = 0.dp)) {
+        Column(modifier = modifier.fillMaxWidth().padding(horizontal = 0.dp, vertical = 4.dp)) {
             CanvasExpandableHeaderRow(
                 title = stringResource(id = R.string.search_sources),
                 semanticDescription =
@@ -356,370 +333,23 @@ class CustomXmlRenderer(
                     enter = androidx.compose.animation.fadeIn(animationSpec = tween(200)),
                     exit = androidx.compose.animation.fadeOut(animationSpec = tween(200))
             ) {
-                if (renderState.bodyText.isNotBlank()) {
+                if (searchText.isNotBlank()) {
                     Box(
-                        modifier =
-                            Modifier.fillMaxWidth()
-                                .padding(top = 0.dp, bottom = 4.dp, start = 24.dp)
+                            modifier =
+                                    Modifier.fillMaxWidth()
+                                            .padding(top = 4.dp, bottom = 8.dp, start = 24.dp)
                     ) {
+                        // 使用 Markdown 渲染器来渲染搜索来源（支持链接等格式）
                         com.ai.assistance.operit.ui.common.displays.MarkdownTextComposable(
-                            text = renderState.bodyText,
-                            textColor = textColor.copy(alpha = 0.8f),
-                            modifier = Modifier,
-                            enableDialogs = enableDialogs
+                                text = searchText,
+                                textColor = textColor.copy(alpha = 0.8f),
+                                modifier = Modifier,
+                                enableDialogs = enableDialogs
                         )
                     }
                 }
             }
         }
-    }
-
-    @Composable
-    private fun StructuredSearchBody(
-        renderState: SearchRenderState,
-        textColor: Color,
-        modifier: Modifier = Modifier
-    ) {
-        var selectedSource by remember { mutableStateOf<SearchSourceRenderState?>(null) }
-        val searchRows =
-            if (renderState.sources.isNotEmpty()) {
-                renderState.sources
-            } else {
-                renderState.queries.map { query ->
-                    SearchSourceRenderState(
-                        title = query,
-                        url = "",
-                        faviconUrl = "",
-                        host = "",
-                        siteName = "",
-                        displayName = query,
-                        attributes = mapOf("type" to "query", "query" to query),
-                    )
-                }
-            }
-
-        Column(
-            modifier =
-                modifier.fillMaxWidth()
-                    .padding(vertical = 0.dp),
-            verticalArrangement = Arrangement.spacedBy(1.dp)
-        ) {
-            searchRows.forEach { source ->
-                SearchSourceRow(source, textColor) { selectedSource = source }
-            }
-        }
-
-        selectedSource?.let { source ->
-            SearchSourceDetailDialog(
-                source = source,
-                onDismiss = { selectedSource = null },
-            )
-        }
-    }
-
-    @Composable
-    private fun SearchSourceRow(
-        source: SearchSourceRenderState,
-        textColor: Color,
-        onClick: () -> Unit,
-    ) {
-        val icon = if (source.url.isBlank()) Icons.Default.Search else Icons.Default.Web
-        Row(
-            modifier =
-                Modifier.fillMaxWidth()
-                    .clickable(enabled = source.url.isNotBlank() || source.title.isNotBlank(), onClick = onClick)
-                    .heightIn(min = 24.dp)
-                    .padding(vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(modifier = Modifier.size(18.dp), contentAlignment = Alignment.Center) {
-                if (source.faviconUrl.isNotBlank()) {
-                    SubcomposeAsyncImage(
-                        model = source.faviconUrl,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp).clip(RoundedCornerShape(4.dp)),
-                        loading = {
-                            Icon(
-                                imageVector = Icons.Default.Web,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.45f),
-                                modifier = Modifier.size(14.dp)
-                            )
-                        },
-                        error = {
-                            Icon(
-                                imageVector = Icons.Default.Web,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.55f),
-                                modifier = Modifier.size(14.dp)
-                            )
-                        }
-                    )
-                } else {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.55f),
-                        modifier = Modifier.size(14.dp)
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = source.displayName,
-                color = textColor.copy(alpha = 0.9f),
-                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
-        }
-    }
-
-    @Composable
-    private fun SearchSourceDetailDialog(
-        source: SearchSourceRenderState,
-        onDismiss: () -> Unit,
-    ) {
-        val uriHandler = LocalUriHandler.current
-        val icon = if (source.url.isBlank()) Icons.Default.Search else Icons.Default.Web
-
-        AlertDialog(
-            onDismissRequest = onDismiss,
-            icon = {
-                if (source.faviconUrl.isNotBlank()) {
-                    SubcomposeAsyncImage(
-                        model = source.faviconUrl,
-                        contentDescription = null,
-                        modifier = Modifier.size(32.dp).clip(RoundedCornerShape(7.dp)),
-                        loading = { Icon(Icons.Default.Web, contentDescription = null) },
-                        error = { Icon(Icons.Default.Web, contentDescription = null) },
-                    )
-                } else {
-                    Icon(icon, contentDescription = null)
-                }
-            },
-            title = {
-                Column {
-                    Text(source.displayName, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (source.host.isNotBlank()) {
-                        Text(
-                            text = source.host,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (source.title.isNotBlank()) {
-                        Text(source.title, style = MaterialTheme.typography.bodyMedium)
-                    }
-                    if (source.url.isNotBlank()) {
-                        Text(
-                            text = source.url,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                if (source.url.isNotBlank()) {
-                    TextButton(
-                        onClick = {
-                            try {
-                                uriHandler.openUri(source.url)
-                            } catch (e: Exception) {
-                                AppLogger.w("SearchDisplay", "Cannot open search source: ${source.url}", e)
-                            }
-                        },
-                    ) {
-                        Text(stringResource(R.string.open))
-                    }
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = onDismiss) {
-                    Text(stringResource(R.string.common_close))
-                }
-            },
-        )
-    }
-
-    private fun parseSearchRenderState(content: String): SearchRenderState {
-        val bodyText = extractContentFromXml(content, "search").trim()
-        val parsed = parseStructuredSearchXml(content, bodyText)
-        if (parsed != null) {
-            return parsed
-        }
-
-        return SearchRenderState(
-            provider = "",
-            action = "",
-            status = "",
-            queries = emptyList(),
-            sources = emptyList(),
-            bodyText = bodyText,
-            isStructured = false,
-        )
-    }
-
-    private fun parseStructuredSearchXml(content: String, bodyText: String): SearchRenderState? {
-        return try {
-            val parser = XmlPullParserFactory.newInstance().apply { isNamespaceAware = false }
-                .newPullParser()
-            parser.setInput(StringReader(content))
-
-            var provider = ""
-            var action = ""
-            var status = ""
-            var hasSearchRoot = false
-            var insideSearch = false
-            var queryText: StringBuilder? = null
-            val queries = mutableListOf<String>()
-            val sources = mutableListOf<SearchSourceRenderState>()
-
-            var eventType = parser.eventType
-            while (eventType != XmlPullParser.END_DOCUMENT) {
-                when (eventType) {
-                    XmlPullParser.START_TAG -> {
-                        when (parser.name.lowercase()) {
-                            "search" -> {
-                                hasSearchRoot = true
-                                insideSearch = true
-                                provider = parser.searchAttribute("provider")
-                                action = parser.searchAttribute("action")
-                                status = parser.searchAttribute("status")
-                            }
-                            "query" -> {
-                                if (insideSearch) {
-                                    queryText = StringBuilder()
-                                }
-                            }
-                            "source" -> {
-                                if (insideSearch) {
-                                    val url = parser.searchAttribute("url")
-                                    if (url.isNotEmpty()) {
-                                        val title = parser.searchAttribute("title")
-                                        val host = hostFromSearchUrl(url)
-                                        val siteName = parser.searchSourceSiteName()
-                                        sources += SearchSourceRenderState(
-                                            title = title,
-                                            url = url,
-                                            faviconUrl = faviconUrlForSearchSource(url),
-                                            host = host,
-                                            siteName = siteName,
-                                            displayName = searchSourceDisplayName(siteName, host, title, url),
-                                            attributes = parser.searchAttributes(),
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    XmlPullParser.TEXT -> {
-                        queryText?.append(parser.text)
-                    }
-                    XmlPullParser.END_TAG -> {
-                        when (parser.name.lowercase()) {
-                            "query" -> {
-                                val query = queryText?.toString()?.trim().orEmpty()
-                                if (query.isNotEmpty()) {
-                                    queries += query
-                                }
-                                queryText = null
-                            }
-                            "search" -> {
-                                insideSearch = false
-                            }
-                        }
-                    }
-                }
-                eventType = parser.next()
-            }
-
-            val structured = hasSearchRoot &&
-                (provider.isNotEmpty() ||
-                    action.isNotEmpty() ||
-                    status.isNotEmpty() ||
-                    queries.isNotEmpty() ||
-                    sources.isNotEmpty())
-            if (!structured) {
-                null
-            } else {
-                SearchRenderState(
-                    provider = provider,
-                    action = action,
-                    status = status,
-                    queries = queries,
-                    sources = sources,
-                    bodyText = bodyText,
-                    isStructured = true,
-                )
-            }
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    private fun XmlPullParser.searchAttribute(name: String): String {
-        return getAttributeValue(null, name)?.trim().orEmpty()
-    }
-
-    private fun XmlPullParser.searchAttributes(): Map<String, String> {
-        val attributes = linkedMapOf<String, String>()
-        for (index in 0 until attributeCount.coerceAtLeast(0)) {
-            val name = getAttributeName(index)?.trim().orEmpty()
-            val value = getAttributeValue(index)?.trim().orEmpty()
-            if (name.isNotEmpty() && value.isNotEmpty()) {
-                attributes[name] = value
-            }
-        }
-        return attributes
-    }
-
-    private fun XmlPullParser.searchSourceSiteName(): String {
-        listOf("site_name", "siteName", "source", "name").forEach { name ->
-            val value = searchAttribute(name)
-            if (value.isNotBlank()) {
-                return value
-            }
-        }
-        return ""
-    }
-
-    private fun hostFromSearchUrl(url: String): String {
-        return url.substringAfter("://", url)
-            .substringBefore("/")
-            .substringBefore("?")
-            .substringBefore("#")
-            .substringAfterLast("@")
-            .substringBefore(":")
-            .trim()
-    }
-
-    private fun searchSourceDisplayName(siteName: String, host: String, title: String, url: String): String {
-        if (siteName.isNotBlank()) {
-            return siteName
-        }
-        val domainName = host.removePrefix("www.").trim()
-        if (domainName.isNotBlank()) {
-            return domainName
-        }
-        if (title.isNotBlank()) {
-            return title
-        }
-        return url
-    }
-
-    private fun faviconUrlForSearchSource(url: String): String {
-        val host = hostFromSearchUrl(url).lowercase()
-        if (host.isBlank()) {
-            return ""
-        }
-        return "https://www.google.com/s2/favicons?sz=64&domain=$host"
     }
 
     /** 渲染 <think> 和 <thinking> 标签内容 */
@@ -1423,8 +1053,8 @@ class CustomXmlRenderer(
             }
             
             // 构建完整的HTML文档
-            val fullHtml = remember(styledHtml, textColor, context) {
-                StatusCardHtmlDocument.build(context, styledHtml, textColor)
+            val fullHtml = remember(styledHtml, textColor) {
+                buildFullHtmlDocument(styledHtml, textColor)
             }
 
             val webView = remember(context) {
@@ -1475,6 +1105,82 @@ class CustomXmlRenderer(
                 factory = { webView }
             )
         }
+    }
+    
+    /**
+     * 构建完整的HTML文档，包含CSS样式
+     */
+    private fun buildFullHtmlDocument(bodyContent: String, textColor: Color): String {
+        val textColorHex = String.format("#%06X", 0xFFFFFF and textColor.toArgb())
+        
+        return """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+                <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+                <style>
+                    * {
+                        margin: 0;
+                        padding: 0;
+                        box-sizing: border-box;
+                    }
+                    body {
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+                        font-size: 13px;
+                        line-height: 1.4;
+                        color: $textColorHex;
+                        padding: 0;
+                        background: transparent;
+                    }
+                    .material-symbols-rounded {
+                        font-family: 'Material Symbols Rounded';
+                        font-weight: normal;
+                        font-style: normal;
+                        font-size: 20px;
+                        display: inline-block;
+                        line-height: 1;
+                        text-transform: none;
+                        letter-spacing: normal;
+                        word-wrap: normal;
+                        white-space: nowrap;
+                        direction: ltr;
+                        font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+                    }
+                    h1, h2, h3, h4, h5, h6 {
+                        margin: 2px 0 3px 0;
+                        font-weight: 600;
+                        line-height: 1.3;
+                        color: inherit;
+                    }
+                    h1 { font-size: 15px; }
+                    h2 { font-size: 14px; }
+                    h3 { font-size: 13px; }
+                    h4 { font-size: 13px; }
+                    h5 { font-size: 12px; }
+                    h6 { font-size: 12px; }
+                    p {
+                        margin: 2px 0;
+                        font-size: 13px;
+                    }
+                    a {
+                        color: #007AFF;
+                        text-decoration: none;
+                    }
+                    a:hover {
+                        text-decoration: underline;
+                    }
+                    strong, b {
+                        font-weight: 600;
+                    }
+                </style>
+            </head>
+            <body>
+                $bodyContent
+            </body>
+            </html>
+        """.trimIndent()
     }
     
     /**

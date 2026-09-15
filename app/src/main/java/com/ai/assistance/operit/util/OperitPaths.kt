@@ -114,7 +114,7 @@ object OperitPaths {
             VECTOR_INDEX_DIR_NAME,
             IMAGE_POOL_DIR_NAME,
             MEDIA_POOL_DIR_NAME,
-            SKILL_REPO_ZIP_POOL_DIR_NAME,
+            SKILL_REPO_ZIP_POOL_DIR_NAME
         )
     }
 

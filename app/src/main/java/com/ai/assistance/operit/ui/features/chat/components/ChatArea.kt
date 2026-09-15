@@ -18,8 +18,6 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -37,7 +35,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
@@ -55,6 +52,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateMapOf
@@ -64,11 +62,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -78,7 +72,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ai.assistance.operit.R
@@ -99,18 +92,11 @@ import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Summarize
 import androidx.compose.ui.draw.alpha
 import com.ai.assistance.operit.api.chat.llmprovider.MediaLinkParser
-import com.ai.assistance.operit.plugins.chatmessage.ChatMessageMenuDialogRequest
-import com.ai.assistance.operit.plugins.chatmessage.ChatMessageMenuItemDefinition
-import com.ai.assistance.operit.plugins.chatmessage.ChatMessageMenuItemParams
-import com.ai.assistance.operit.plugins.chatmessage.ChatMessageMenuItemRegistry
-import com.ai.assistance.operit.ui.common.composedsl.ToolPkgComposeDslDialogHost
-import com.ai.assistance.operit.ui.common.icons.MaterialIconNameResolver
 import com.ai.assistance.operit.ui.common.markdown.markdownToPlainTextForCopy
 import com.ai.assistance.operit.ui.features.chat.components.style.cursor.CursorStyleChatMessage
 import com.ai.assistance.operit.ui.features.chat.components.style.bubble.BubbleImageStyleConfig
 import com.ai.assistance.operit.ui.features.chat.components.style.bubble.BubbleStyleChatMessage
 import com.ai.assistance.operit.ui.theme.LocalThemePreferenceSnapshot
-import com.ai.assistance.operit.util.AppLogger
 import com.ai.assistance.operit.util.ChatMarkupRegex
 import com.ai.assistance.operit.util.LatexMathMlConverter
 import java.text.SimpleDateFormat
@@ -128,7 +114,7 @@ internal fun cleanMessageContentForCopy(content: String): String {
     return content
         // Provider元数据必须保留在消息中供后续轮次使用，但不能暴露在复制内容中
         .let(ChatMarkupRegex::removeGeminiThoughtSignatureMeta)
-        .let(ChatMarkupRegex::removeOpenAiResponsesProtocolMeta)
+        .let(ChatMarkupRegex::removeOpenAiResponsesReasoningMeta)
         // 移除状态标签
         .replace(ChatMarkupRegex.statusTag, "")
         .replace(ChatMarkupRegex.statusSelfClosingTag, "")
@@ -154,34 +140,6 @@ internal fun cleanMessageContentForCopy(content: String): String {
         .let(MediaLinkParser::removeImageLinks)
         .let(MediaLinkParser::removeMediaLinks)
         .trim()
-}
-
-/** 保留结构化标记用于复制，同时移除供应商协议元数据。 */
-internal fun cleanMessageContentForXmlCopy(content: String): String {
-    return content
-        .let(ChatMarkupRegex::removeGeminiThoughtSignatureMeta)
-        .let(ChatMarkupRegex::removeOpenAiResponsesProtocolMeta)
-        .trim()
-}
-
-internal data class MessageCopyContent(
-    val markdownSource: String,
-    val xmlSource: String,
-)
-
-internal suspend fun buildSelectedMessagesPlainText(
-    messages: List<ChatMessage>,
-    markdownToPlainText: suspend (String) -> String,
-): String {
-    return messages
-        .filter { message -> message.sender == "user" || message.sender == "ai" }
-        .filterNot(::isHiddenUserPlaceholder)
-        .mapNotNull { message ->
-            markdownToPlainText(cleanMessageContentForCopy(message.content))
-                .trim()
-                .takeIf(String::isNotEmpty)
-        }
-        .joinToString("\n\n")
 }
 
 private fun isHiddenUserPlaceholder(message: ChatMessage): Boolean {
@@ -267,7 +225,6 @@ fun ChatArea(
     val themeSnapshot = LocalThemePreferenceSnapshot.current
     val showMessageTokenStats = themeSnapshot.showMessageTokenStats
     val showMessageTimingStats = themeSnapshot.showMessageTimingStats
-    val showMessageTokenSpeed = themeSnapshot.showMessageTokenSpeed
     val showMessageTimestamp = themeSnapshot.showMessageTimestamp
     var viewportHeightPx by remember { mutableStateOf(0) }
     val messageAnchors = remember(currentChatId) { mutableStateMapOf<Long, ChatScrollMessageAnchor>() }
@@ -440,7 +397,6 @@ fun ChatArea(
                     ) {
                         MessageItem(
                             index = actualIndex,
-                            currentChatId = currentChatId,
                             message = message,
                             enableDialogs = enableDialogs,
                             userMessageColor = userMessageColor,
@@ -468,7 +424,6 @@ fun ChatArea(
                             chatStyle = chatStyle,
                             showMessageTokenStats = showMessageTokenStats,
                             showMessageTimingStats = showMessageTimingStats,
-                            showMessageTokenSpeed = showMessageTokenSpeed,
                             showMessageTimestamp = showMessageTimestamp,
                             cursorUserBubbleLiquidGlass = cursorUserBubbleLiquidGlass,
                             cursorUserBubbleWaterGlass = cursorUserBubbleWaterGlass,
@@ -611,7 +566,6 @@ fun ChatArea(
 @Composable
 private fun MessageItem(
     index: Int,
-    currentChatId: String,
     message: ChatMessage,
     enableDialogs: Boolean,
     userMessageColor: Color,
@@ -639,7 +593,6 @@ private fun MessageItem(
     chatStyle: ChatStyle, // 新增参数
     showMessageTokenStats: Boolean = false,
     showMessageTimingStats: Boolean = false,
-    showMessageTokenSpeed: Boolean = false,
     showMessageTimestamp: Boolean = false,
     cursorUserBubbleLiquidGlass: Boolean = false,
     cursorUserBubbleWaterGlass: Boolean = false,
@@ -666,28 +619,13 @@ private fun MessageItem(
     var showMessageInfoDialog by remember { mutableStateOf(false) }
     var showHiddenUserMessageDialog by remember { mutableStateOf(false) }
     var showDeleteMessageConfirmDialog by remember { mutableStateOf(false) }
-    var copyPreviewContent by remember { mutableStateOf<MessageCopyContent?>(null) }
-    var toolPkgDialogRequest by remember(currentChatId, message.timestamp) {
-        mutableStateOf<ChatMessageMenuDialogRequest?>(null)
-    }
+    var copyPreviewText by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
     val messageInteractionSource = remember { MutableInteractionSource() }
 
     // 只有用户和AI的消息才能被操作
     val isActionable = message.sender == "user" || message.sender == "ai"
     val isHiddenUserMessage = isHiddenUserPlaceholder(message)
-    var pluginMenuItems by remember(currentChatId, message.timestamp) {
-        mutableStateOf<List<ChatMessageMenuItemDefinition>>(emptyList())
-    }
-
-    fun buildPluginMenuItemParams(): ChatMessageMenuItemParams =
-        ChatMessageMenuItemParams(
-            context = context,
-            chatId = currentChatId,
-            messageIndex = messageIndex,
-            message = message
-        )
 
     Box(
         modifier =
@@ -713,14 +651,6 @@ private fun MessageItem(
                 },
                 onLongClick = { 
                     if (!isMultiSelectMode && isActionable) {
-                        pluginMenuItems =
-                            if (!isHiddenUserMessage) {
-                                ChatMessageMenuItemRegistry.createMenuItems(
-                                    buildPluginMenuItemParams()
-                                )
-                            } else {
-                                emptyList()
-                            }
                         showContextMenu = true
                     }
                 },
@@ -790,7 +720,6 @@ private fun MessageItem(
                     message.variantCount > 1 ||
                         (showMessageTokenStats && hasDisplayableTokenStats(message)) ||
                         (showMessageTimingStats && hasDisplayableTimingStats(message)) ||
-                        (showMessageTokenSpeed && hasDisplayableTokenSpeedStats(message)) ||
                         (showMessageTimestamp && hasDisplayableMessageTimestamp(message))
                 )
             ) {
@@ -798,7 +727,6 @@ private fun MessageItem(
                     message = message,
                     showMessageTokenStats = showMessageTokenStats,
                     showMessageTimingStats = showMessageTimingStats,
-                    showMessageTokenSpeed = showMessageTokenSpeed,
                     showMessageTimestamp = showMessageTimestamp,
                     onSelectVariant = { targetVariantIndex ->
                         onSwitchMessageVariant?.invoke(index, targetVariantIndex)
@@ -829,10 +757,8 @@ private fun MessageItem(
                         )
                     },
                     onClick = {
-                        copyPreviewContent = MessageCopyContent(
-                            markdownSource = cleanMessageContentForCopy(message.content),
-                            xmlSource = cleanMessageContentForXmlCopy(message.content),
-                        )
+                        val cleanContent = cleanMessageContentForCopy(message.content)
+                        copyPreviewText = cleanContent
                         onCopyMessage?.invoke(message)
                         showContextMenu = false
                     },
@@ -870,57 +796,6 @@ private fun MessageItem(
                     },
                     modifier = Modifier.height(36.dp)
                 )
-            }
-
-            if (isActionable && !isHiddenUserMessage && pluginMenuItems.isNotEmpty()) {
-                pluginMenuItems.forEach { pluginMenuItem ->
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                pluginMenuItem.title,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontSize = 13.sp
-                            )
-                        },
-                        onClick = {
-                            val clickParams = buildPluginMenuItemParams()
-                            showContextMenu = false
-                            coroutineScope.launch {
-                                try {
-                                    val result = pluginMenuItem.onClick(clickParams)
-                                    val dialogRequest = result?.dialog
-                                    if (dialogRequest != null && enableDialogs) {
-                                        toolPkgDialogRequest = dialogRequest
-                                    }
-                                } catch (error: Exception) {
-                                    AppLogger.e(
-                                        "ChatArea",
-                                        "chat message menu item failed: ${pluginMenuItem.id}",
-                                        error
-                                    )
-                                    Toast.makeText(
-                                        context,
-                                        context.getString(R.string.operation_failed),
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                }
-                            }
-                        },
-                        leadingIcon = {
-                            Icon(
-                                imageVector =
-                                    MaterialIconNameResolver.resolveOrDefault(
-                                        pluginMenuItem.icon,
-                                        Icons.Default.Extension
-                                    ),
-                                contentDescription = pluginMenuItem.title,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        },
-                        modifier = Modifier.height(36.dp)
-                    )
-                }
             }
 
             // 根据消息发送者显示不同的操作
@@ -1244,89 +1119,42 @@ private fun MessageItem(
             )
         }
 
-        copyPreviewContent?.let { previewContent ->
+        copyPreviewText?.let { previewText ->
             MessageCopyPreviewBottomSheet(
-                content = previewContent,
-                onDismiss = { copyPreviewContent = null }
-            )
-        }
-
-        toolPkgDialogRequest?.let { dialogRequest ->
-            ToolPkgComposeDslDialogHost(
-                request = dialogRequest,
-                onDismiss = { toolPkgDialogRequest = null }
+                text = previewText,
+                onDismiss = { copyPreviewText = null }
             )
         }
     }
 }
 
-private enum class MessageCopyMode {
-    PLAIN_TEXT,
-    MARKDOWN_SOURCE,
-    XML_SOURCE,
-}
-
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MessageCopyPreviewBottomSheet(
-    content: MessageCopyContent,
+    text: String,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val textScrollState = rememberScrollState()
-    val copyPreviewNestedScrollConnection =
-        remember(textScrollState) {
-            object : NestedScrollConnection {
-                override fun onPostScroll(
-                    consumed: Offset,
-                    available: Offset,
-                    source: NestedScrollSource,
-                ): Offset {
-                    return if (
-                        source == NestedScrollSource.UserInput &&
-                            textScrollState.value == 0 &&
-                            available.y > 0f
-                    ) {
-                        Offset(x = 0f, y = available.y)
-                    } else {
-                        Offset.Zero
-                    }
-                }
-
-                override suspend fun onPostFling(
-                    consumed: Velocity,
-                    available: Velocity,
-                ): Velocity {
-                    return if (textScrollState.value == 0 && available.y > 0f) {
-                        Velocity(x = 0f, y = available.y)
-                    } else {
-                        Velocity.Zero
-                    }
-                }
-            }
-        }
-    var copyMode by remember(content) { mutableStateOf(MessageCopyMode.PLAIN_TEXT) }
-    var plainText by remember(content.markdownSource) { mutableStateOf<String?>(null) }
-    LaunchedEffect(content.markdownSource, context) {
+    var showPlainText by remember(text) { mutableStateOf(true) }
+    var plainText by remember(text) { mutableStateOf<String?>(null) }
+    LaunchedEffect(text, context) {
         plainText =
             withContext(Dispatchers.Default) {
-                markdownToPlainTextForCopy(content.markdownSource) { formulas ->
+                markdownToPlainTextForCopy(text) { formulas ->
                     LatexMathMlConverter.convertAll(context, formulas)
                 }
             }
     }
-    val displayedText = when (copyMode) {
-        MessageCopyMode.PLAIN_TEXT -> plainText.orEmpty()
-        MessageCopyMode.MARKDOWN_SOURCE -> content.markdownSource
-        MessageCopyMode.XML_SOURCE -> content.xmlSource
-    }
-    val copyButtonText = when (copyMode) {
-        MessageCopyMode.PLAIN_TEXT -> stringResource(R.string.copy_plain_text)
-        MessageCopyMode.MARKDOWN_SOURCE -> stringResource(R.string.copy_markdown_source)
-        MessageCopyMode.XML_SOURCE -> stringResource(R.string.copy_xml_source)
-    }
+    val displayedText = if (showPlainText) plainText.orEmpty() else text
+    val copyButtonText =
+        if (showPlainText) {
+            stringResource(R.string.copy_plain_text)
+        } else {
+            stringResource(R.string.copy_markdown_source)
+        }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -1343,28 +1171,22 @@ private fun MessageCopyPreviewBottomSheet(
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.padding(bottom = 12.dp)
             )
-            FlowRow(
+            Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.padding(bottom = 12.dp)
             ) {
                 FilterChip(
-                    selected = copyMode == MessageCopyMode.PLAIN_TEXT,
-                    onClick = { copyMode = MessageCopyMode.PLAIN_TEXT },
+                    selected = showPlainText,
+                    onClick = { showPlainText = true },
                     label = { Text(stringResource(R.string.plain_text)) }
                 )
                 FilterChip(
-                    selected = copyMode == MessageCopyMode.MARKDOWN_SOURCE,
-                    onClick = { copyMode = MessageCopyMode.MARKDOWN_SOURCE },
+                    selected = !showPlainText,
+                    onClick = { showPlainText = false },
                     label = { Text(stringResource(R.string.markdown_source)) }
                 )
-                FilterChip(
-                    selected = copyMode == MessageCopyMode.XML_SOURCE,
-                    onClick = { copyMode = MessageCopyMode.XML_SOURCE },
-                    label = { Text(stringResource(R.string.xml_source)) }
-                )
             }
-            if (copyMode == MessageCopyMode.PLAIN_TEXT && plainText == null) {
+            if (showPlainText && plainText == null) {
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
@@ -1379,8 +1201,6 @@ private fun MessageCopyPreviewBottomSheet(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(max = 520.dp)
-                        // Keep top pulls in the preview so the sheet does not start a second rebound.
-                        .nestedScroll(copyPreviewNestedScrollConnection)
                         .verticalScroll(textScrollState)
                         .padding(bottom = 12.dp)
                 ) {
@@ -1397,7 +1217,7 @@ private fun MessageCopyPreviewBottomSheet(
                 horizontalArrangement = Arrangement.End,
             ) {
                 TextButton(
-                    enabled = copyMode != MessageCopyMode.PLAIN_TEXT || plainText != null,
+                    enabled = !showPlainText || plainText != null,
                     onClick = {
                         clipboardManager.setText(AnnotatedString(displayedText))
                         Toast.makeText(
@@ -1416,15 +1236,6 @@ private fun MessageCopyPreviewBottomSheet(
 
 private fun hasDisplayableTokenStats(message: ChatMessage): Boolean {
     return message.inputTokens > 0 || message.cachedInputTokens > 0 || message.outputTokens > 0
-}
-
-internal fun calculateMessageTokenSpeed(outputTokens: Long, outputDurationMs: Long): Double? {
-    if (outputTokens <= 0L || outputDurationMs <= 0L) return null
-    return outputTokens.toDouble() * 1000.0 / outputDurationMs.toDouble()
-}
-
-private fun hasDisplayableTokenSpeedStats(message: ChatMessage): Boolean {
-    return calculateMessageTokenSpeed(message.outputTokens, message.outputDurationMs) != null
 }
 
 private fun hasDisplayableTimingStats(message: ChatMessage): Boolean {
@@ -1448,10 +1259,6 @@ private fun formatCompactDuration(durationMs: Long): String {
     }
 }
 
-private fun formatCompactTokenSpeed(tokenSpeed: Double): String {
-    return String.format(Locale.getDefault(), "%.1f", tokenSpeed)
-}
-
 private fun formatCompactTimestamp(completedAt: Long): String {
     if (completedAt <= 0L) return ""
     return SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(completedAt))
@@ -1462,7 +1269,6 @@ private fun MessageFooterBar(
     message: ChatMessage,
     showMessageTokenStats: Boolean,
     showMessageTimingStats: Boolean,
-    showMessageTokenSpeed: Boolean,
     showMessageTimestamp: Boolean,
     onSelectVariant: (Int) -> Unit,
 ) {
@@ -1478,7 +1284,6 @@ private fun MessageFooterBar(
                 message.cachedInputTokens,
                 message.inputTokens,
                 message.outputTokens,
-                formatCacheHitRate(message.cachedInputTokens, message.inputTokens),
             )
         }
     val timeSummary =
@@ -1490,18 +1295,6 @@ private fun MessageFooterBar(
                 formatCompactDuration(message.waitDurationMs),
                 formatCompactDuration(message.outputDurationMs),
             )
-        }
-    val tokenSpeedSummary =
-        remember(message.outputTokens, message.outputDurationMs) {
-            calculateMessageTokenSpeed(
-                message.outputTokens,
-                message.outputDurationMs,
-            )?.let { tokenSpeed ->
-                context.getString(
-                    R.string.chat_message_token_speed_compact,
-                    formatCompactTokenSpeed(tokenSpeed),
-                )
-            }
         }
     val messageTimeSummary =
         remember(message.completedAt) {
@@ -1577,14 +1370,6 @@ private fun MessageFooterBar(
         if (showMessageTimingStats && hasDisplayableTimingStats(message)) {
             Text(
                 text = timeSummary,
-                style = MaterialTheme.typography.labelSmall,
-                color = statsTextColor,
-            )
-        }
-
-        if (showMessageTokenSpeed && tokenSpeedSummary != null) {
-            Text(
-                text = tokenSpeedSummary,
                 style = MaterialTheme.typography.labelSmall,
                 color = statsTextColor,
             )

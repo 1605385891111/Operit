@@ -97,29 +97,26 @@ object ExpressionContext {
 
     /** 调用函数 */
     fun callFunction(name: String, args: List<Double>): Double {
-        val mathFunctionName =
-                if (name.startsWith("Math.", ignoreCase = true)) name.substring(5) else name
-
         return when {
             // 数学函数
-            mathFunctionName.equals("abs", ignoreCase = true) -> Math.abs(args[0])
-            mathFunctionName.equals("sqrt", ignoreCase = true) -> Math.sqrt(args[0])
-            mathFunctionName.equals("sin", ignoreCase = true) -> Math.sin(args[0])
-            mathFunctionName.equals("cos", ignoreCase = true) -> Math.cos(args[0])
-            mathFunctionName.equals("tan", ignoreCase = true) -> Math.tan(args[0])
-            mathFunctionName.equals("asin", ignoreCase = true) -> Math.asin(args[0])
-            mathFunctionName.equals("acos", ignoreCase = true) -> Math.acos(args[0])
-            mathFunctionName.equals("atan", ignoreCase = true) -> Math.atan(args[0])
-            mathFunctionName.equals("log", ignoreCase = true) -> Math.log10(args[0])
-            mathFunctionName.equals("ln", ignoreCase = true) -> Math.log(args[0])
-            mathFunctionName.equals("round", ignoreCase = true) -> Math.round(args[0]).toDouble()
-            mathFunctionName.equals("floor", ignoreCase = true) -> Math.floor(args[0])
-            mathFunctionName.equals("ceil", ignoreCase = true) -> Math.ceil(args[0])
-            mathFunctionName.equals("pow", ignoreCase = true) -> Math.pow(args[0], args[1])
-            mathFunctionName.equals("max", ignoreCase = true) -> args.maxOrNull() ?: Double.NaN
-            mathFunctionName.equals("min", ignoreCase = true) -> args.minOrNull() ?: Double.NaN
-            mathFunctionName.equals("random", ignoreCase = true) -> Math.random()
-            mathFunctionName.equals("fact", ignoreCase = true) -> factorial(args[0].toInt()).toDouble()
+            name.equals("abs", ignoreCase = true) -> Math.abs(args[0])
+            name.equals("sqrt", ignoreCase = true) -> Math.sqrt(args[0])
+            name.equals("sin", ignoreCase = true) -> Math.sin(args[0])
+            name.equals("cos", ignoreCase = true) -> Math.cos(args[0])
+            name.equals("tan", ignoreCase = true) -> Math.tan(args[0])
+            name.equals("asin", ignoreCase = true) -> Math.asin(args[0])
+            name.equals("acos", ignoreCase = true) -> Math.acos(args[0])
+            name.equals("atan", ignoreCase = true) -> Math.atan(args[0])
+            name.equals("log", ignoreCase = true) -> Math.log10(args[0])
+            name.equals("ln", ignoreCase = true) -> Math.log(args[0])
+            name.equals("round", ignoreCase = true) -> Math.round(args[0]).toDouble()
+            name.equals("floor", ignoreCase = true) -> Math.floor(args[0])
+            name.equals("ceil", ignoreCase = true) -> Math.ceil(args[0])
+            name.equals("pow", ignoreCase = true) -> Math.pow(args[0], args[1])
+            name.equals("max", ignoreCase = true) -> args.maxOrNull() ?: Double.NaN
+            name.equals("min", ignoreCase = true) -> args.minOrNull() ?: Double.NaN
+            name.equals("random", ignoreCase = true) -> Math.random()
+            name.equals("fact", ignoreCase = true) -> factorial(args[0].toInt()).toDouble()
 
             // 日期函数
             name.equals("today", ignoreCase = true) ->

@@ -88,7 +88,7 @@ fun registerAllTools(handler: AIToolHandler, context: Context) {
     )
 
     fun isEnglishLanguage(): Boolean {
-        return !LocaleUtils.usesChineseContent(context)
+        return LocaleUtils.getCurrentLanguage(context).lowercase().startsWith("en")
     }
 
     fun buildToolErrorResult(tool: AITool, error: String): ToolResult {
@@ -237,11 +237,11 @@ fun registerAllTools(handler: AIToolHandler, context: Context) {
             )
         }
 
-        val permissionResult = runBlocking {
+        val hasPermission = runBlocking {
             handler.getToolPermissionSystem().checkToolPermission(proxiedTool)
         }
-        if (!permissionResult.isGranted) {
-            val errorMessage = context.getString(requireNotNull(permissionResult.errorMessageResId))
+        if (!hasPermission) {
+            val errorMessage = "User cancelled the tool execution."
             handler.notifyToolPermissionChecked(
                 proxiedTool,
                 granted = false,
@@ -1722,15 +1722,6 @@ fun registerAllTools(handler: AIToolHandler, context: Context) {
                             return chatManagerTool.sendMessageToAIStream(tool)
                         }
                     }
-    )
-
-    handler.registerTool(
-            name = "call_chat_model",
-            descriptionGenerator = { tool ->
-                val functionType = tool.parameters.find { it.name == "function_type" }?.value ?: ""
-                s(R.string.toolreg_call_chat_model_desc, functionType)
-            },
-            executor = { tool -> runBlocking(Dispatchers.IO) { chatManagerTool.callChatModel(tool) } }
     )
 
     // 列出所有角色卡

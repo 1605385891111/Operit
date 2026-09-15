@@ -293,23 +293,14 @@ class ExpressionParser(private val expression: String) {
                     return FunctionCallNode(identifier, args)
                 }
 
-                // 计算器公开的命名空间函数调用
-                if ((identifier == "Math" || identifier == "stats") && currentToken == ".") {
+                // 数学对象方法调用
+                if (identifier == "Math" && currentToken == ".") {
                     nextToken() // 跳过.
-                    if (currentTokenType != TokenType.IDENTIFIER) {
-                        throw IllegalArgumentException("Expected member name after $identifier.")
-                    }
                     val methodName = currentToken
                     nextToken()
 
-                    if (identifier == "Math" &&
-                            (methodName == "PI" || methodName == "E") &&
-                            currentToken != "(") {
-                        return VariableNode(methodName)
-                    }
-
                     if (currentToken != "(") {
-                        throw IllegalArgumentException("Expected '(' after $identifier.$methodName")
+                        throw IllegalArgumentException("Expected '(' after Math.$methodName")
                     }
                     nextToken() // 跳过(
 
@@ -324,13 +315,11 @@ class ExpressionParser(private val expression: String) {
                     }
 
                     if (currentToken != ")") {
-                        throw IllegalArgumentException(
-                                "Expected ')' in $identifier.$methodName call"
-                        )
+                        throw IllegalArgumentException("Expected ')' in Math.$methodName call")
                     }
                     nextToken() // 跳过)
 
-                    return FunctionCallNode("$identifier.$methodName", args)
+                    return FunctionCallNode("Math.$methodName", args)
                 }
 
                 // 变量引用

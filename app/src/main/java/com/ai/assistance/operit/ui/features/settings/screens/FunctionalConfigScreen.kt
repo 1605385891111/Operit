@@ -24,10 +24,7 @@ import androidx.compose.ui.unit.sp
 import android.widget.Toast
 import com.ai.assistance.operit.util.AssetCopyUtils
 import com.ai.assistance.operit.api.chat.llmprovider.AIServiceFactory
-import com.ai.assistance.operit.api.chat.llmprovider.MediaCapabilityProbe
 import com.ai.assistance.operit.api.chat.llmprovider.MediaLinkBuilder
-import com.ai.assistance.operit.api.chat.llmprovider.ModelConnectionTestOutcome
-import com.ai.assistance.operit.ui.features.settings.components.ExpandableStatusText
 import com.ai.assistance.operit.api.chat.EnhancedAIService
 import com.ai.assistance.operit.core.chat.hooks.PromptTurn
 import com.ai.assistance.operit.core.chat.hooks.PromptTurnKind
@@ -275,7 +272,7 @@ fun FunctionConfigCard(
     val scope = rememberCoroutineScope()
     val modelConfigManager = remember { ModelConfigManager(context) }
     var isTestingConnection by remember { mutableStateOf(false) }
-    var testResult by remember { mutableStateOf<FunctionTestDisplay?>(null) }
+    var testResult by remember { mutableStateOf<Result<String>?>(null) }
 
     var mediaSupportWarningResId by remember { mutableStateOf<Int?>(null) }
 
@@ -424,28 +421,19 @@ fun FunctionConfigCard(
                                 exit = fadeOut() + slideOutHorizontally()
                             ) {
                                 testResult?.let { result ->
+                                    val isSuccess = result.isSuccess
+                                    val message =
+                                            if (isSuccess) result.getOrNull() ?: stringResource(id = R.string.test_connection_success)
+                                            else stringResource(id = R.string.test_connection_failed, result.exceptionOrNull()?.message?.take(30) ?: "")
                                     val color =
-                                            when (result.outcome) {
-                                                ModelConnectionTestOutcome.PASSED ->
-                                                    MaterialTheme.colorScheme.primary
-                                                ModelConnectionTestOutcome.UNVERIFIED ->
-                                                    MaterialTheme.colorScheme.tertiary
-                                                ModelConnectionTestOutcome.FAILED ->
-                                                    MaterialTheme.colorScheme.error
-                                            }
+                                            if (isSuccess) MaterialTheme.colorScheme.primary
+                                            else MaterialTheme.colorScheme.error
                                     val icon =
-                                            when (result.outcome) {
-                                                ModelConnectionTestOutcome.PASSED ->
-                                                    Icons.Default.CheckCircle
-                                                ModelConnectionTestOutcome.UNVERIFIED ->
-                                                    Icons.Default.Info
-                                                ModelConnectionTestOutcome.FAILED ->
-                                                    Icons.Default.Warning
-                                            }
+                                            if (isSuccess) Icons.Default.CheckCircle else Icons.Default.Warning
 
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.padding(top = 4.dp).fillMaxWidth()
+                                        modifier = Modifier.padding(top = 4.dp)
                                     ) {
                                         Icon(
                                                 icon,
@@ -454,11 +442,11 @@ fun FunctionConfigCard(
                                                 modifier = Modifier.size(16.dp)
                                         )
                                         Spacer(Modifier.width(4.dp))
-                                        ExpandableStatusText(
-                                                text = result.message,
-                                                color = color,
+                                        Text(
+                                                message,
                                                 style = MaterialTheme.typography.bodySmall,
-                                                modifier = Modifier.weight(1f)
+                                                color = color,
+                                                maxLines = 1
                                         )
                                     }
                                 }
@@ -492,7 +480,7 @@ fun FunctionConfigCard(
                                                             context = context
                                                     )
 
-                                            val useEnglish = !LocaleUtils.usesChineseContent(context)
+                                            val useEnglish = LocaleUtils.getCurrentLanguage(context).lowercase().startsWith("en")
                                             val result = when (functionType) {
                                                 FunctionType.SUMMARY -> {
                                                     val enhancedService = EnhancedAIService.getInstance(context)
@@ -501,31 +489,20 @@ fun FunctionConfigCard(
                                                             "user" to "Connection test: summarize this short dialog.",
                                                             "assistant" to "Sure, I can help with summaries."
                                                         )
-                                                    enhancedService.generateSummary(
-                                                        sampleMessages,
-                                                        recordTokenUsage = false,
-                                                    )
+                                                    enhancedService.generateSummary(sampleMessages)
                                                 }
                                                 FunctionType.TITLE_GENERATION -> {
                                                     val enhancedService = EnhancedAIService.getInstance(context)
                                                     enhancedService.generateConversationTitle(
-                                                        userText = context.getString(R.string.functional_config_test_title_generation_user_text),
-                                                        recordTokenUsage = false,
+                                                        userText = context.getString(R.string.functional_config_test_title_generation_user_text)
                                                     )
                                                 }
                                                 FunctionType.TRANSLATION -> {
                                                     val enhancedService = EnhancedAIService.getInstance(context)
-                                                    enhancedService.translateText(
-                                                        "Connection test: translate me.",
-                                                        recordTokenUsage = false,
-                                                    )
+                                                    enhancedService.translateText("Connection test: translate me.")
                                                 }
                                                 FunctionType.IMAGE_RECOGNITION -> {
-                                                    val imageFile =
-                                                        AssetCopyUtils.copyAssetToCache(
-                                                            context,
-                                                            MediaCapabilityProbe.IMAGE_ASSET_PATH
-                                                        )
+                                                    val imageFile = AssetCopyUtils.copyAssetToCache(context, "test/1.jpg")
                                                     val imageId = ImagePoolManager.addImage(imageFile.absolutePath)
                                                     if (imageId == "error") {
                                                         throw IllegalStateException("Failed to create test image")
@@ -538,7 +515,7 @@ fun FunctionConfigCard(
                                                         buildString {
                                                             append(MediaLinkBuilder.image(context, imageId))
                                                             append("\n")
-                                                            append(MediaCapabilityProbe.IMAGE_PROMPT)
+                                                            append(context.getString(R.string.conversation_analyze_image_prompt))
                                                         }
                                                     val parameters =
                                                         modelConfigManager.getModelParametersForConfig(configWithSelectedModel.id)
@@ -548,18 +525,13 @@ fun FunctionConfigCard(
                                                         listOf(PromptTurn(kind = PromptTurnKind.USER, content = prompt)),
                                                         parameters,
                                                         stream = false,
-                                                        enableRetry = false,
-                                                        recordTokenUsage = false,
+                                                        enableRetry = false
                                                     )
                                                         .collect { chunk -> buffer.append(chunk) }
                                                     buffer.toString()
                                                 }
                                                 FunctionType.AUDIO_RECOGNITION -> {
-                                                    val audioFile =
-                                                        AssetCopyUtils.copyAssetToCache(
-                                                            context,
-                                                            MediaCapabilityProbe.AUDIO_ASSET_PATH
-                                                        )
+                                                    val audioFile = AssetCopyUtils.copyAssetToCache(context, "test/1.mp3")
                                                     val audioId = MediaPoolManager.addMedia(audioFile.absolutePath, "audio/mpeg")
                                                     if (audioId == "error") {
                                                         throw IllegalStateException("Failed to create test audio")
@@ -572,7 +544,7 @@ fun FunctionConfigCard(
                                                         buildString {
                                                             append(MediaLinkBuilder.audio(context, audioId))
                                                             append("\n")
-                                                            append(MediaCapabilityProbe.AUDIO_PROMPT)
+                                                            append(context.getString(R.string.conversation_analyze_audio_prompt))
                                                         }
                                                     val parameters =
                                                         modelConfigManager.getModelParametersForConfig(configWithSelectedModel.id)
@@ -582,18 +554,13 @@ fun FunctionConfigCard(
                                                         listOf(PromptTurn(kind = PromptTurnKind.USER, content = prompt)),
                                                         parameters,
                                                         stream = false,
-                                                        enableRetry = false,
-                                                        recordTokenUsage = false,
+                                                        enableRetry = false
                                                     )
                                                         .collect { chunk -> buffer.append(chunk) }
                                                     buffer.toString()
                                                 }
                                                 FunctionType.VIDEO_RECOGNITION -> {
-                                                    val videoFile =
-                                                        AssetCopyUtils.copyAssetToCache(
-                                                            context,
-                                                            MediaCapabilityProbe.VIDEO_ASSET_PATH
-                                                        )
+                                                    val videoFile = AssetCopyUtils.copyAssetToCache(context, "test/1.mp4")
                                                     val videoId = MediaPoolManager.addMedia(videoFile.absolutePath, "video/mp4")
                                                     if (videoId == "error") {
                                                         throw IllegalStateException("Failed to create test video")
@@ -606,7 +573,7 @@ fun FunctionConfigCard(
                                                         buildString {
                                                             append(MediaLinkBuilder.video(context, videoId))
                                                             append("\n")
-                                                            append(MediaCapabilityProbe.VIDEO_PROMPT)
+                                                            append(context.getString(R.string.conversation_analyze_video_prompt))
                                                         }
                                                     val parameters =
                                                         modelConfigManager.getModelParametersForConfig(configWithSelectedModel.id)
@@ -616,8 +583,7 @@ fun FunctionConfigCard(
                                                         listOf(PromptTurn(kind = PromptTurnKind.USER, content = prompt)),
                                                         parameters,
                                                         stream = false,
-                                                        enableRetry = false,
-                                                        recordTokenUsage = false,
+                                                        enableRetry = false
                                                     )
                                                         .collect { chunk -> buffer.append(chunk) }
                                                     buffer.toString()
@@ -639,8 +605,7 @@ fun FunctionConfigCard(
                                                         listOf(PromptTurn(kind = PromptTurnKind.USER, content = prompt)),
                                                         parameters,
                                                         stream = false,
-                                                        enableRetry = false,
-                                                        recordTokenUsage = false,
+                                                        enableRetry = false
                                                     )
                                                         .collect { chunk -> buffer.append(chunk) }
                                                     buffer.toString()
@@ -660,8 +625,7 @@ fun FunctionConfigCard(
                                                         ),
                                                         parameters,
                                                         stream = false,
-                                                        enableRetry = false,
-                                                        recordTokenUsage = false,
+                                                        enableRetry = false
                                                     ).collect { chunk -> buffer.append(chunk) }
                                                     buffer.toString()
                                                 }
@@ -691,8 +655,7 @@ fun FunctionConfigCard(
                                                         ),
                                                         parameters,
                                                         stream = false,
-                                                        enableRetry = false,
-                                                        recordTokenUsage = false,
+                                                        enableRetry = false
                                                     ).collect { chunk -> buffer.append(chunk) }
                                                     buffer.toString()
                                                 }
@@ -705,8 +668,7 @@ fun FunctionConfigCard(
                                                         listOf(PromptTurn(kind = PromptTurnKind.USER, content = "Hi")),
                                                         parameters,
                                                         stream = false,
-                                                        enableRetry = false,
-                                                        recordTokenUsage = false,
+                                                        enableRetry = false
                                                     )
                                                         .collect { chunk -> buffer.append(chunk) }
                                                     buffer.toString()
@@ -722,29 +684,15 @@ fun FunctionConfigCard(
                                                         listOf(PromptTurn(kind = PromptTurnKind.USER, content = prompt)),
                                                         parameters,
                                                         stream = false,
-                                                        enableRetry = false,
-                                                        recordTokenUsage = false,
+                                                        enableRetry = false
                                                     )
                                                         .collect { chunk -> buffer.append(chunk) }
                                                     buffer.toString()
                                                 }
                                             }
-                                            testResult =
-                                                FunctionTestDisplay.fromResponse(
-                                                    context = context,
-                                                    functionType = functionType,
-                                                    response = result
-                                                )
+                                            testResult = Result.success(result)
                                         } catch (e: Exception) {
-                                            testResult =
-                                                FunctionTestDisplay(
-                                                    outcome = ModelConnectionTestOutcome.FAILED,
-                                                    message =
-                                                        context.getString(
-                                                            R.string.test_connection_failed,
-                                                            e.message ?: ""
-                                                        )
-                                                )
+                                            testResult = Result.failure(e)
                                         } finally {
                                             cleanupTasks.forEach { task -> runCatching { task() } }
                                         }
@@ -1002,60 +950,5 @@ fun getFunctionDescription(functionType: FunctionType): String {
         FunctionType.IMAGE_RECOGNITION -> stringResource(id = R.string.function_desc_image_recognition)
         FunctionType.AUDIO_RECOGNITION -> stringResource(id = R.string.function_desc_audio_recognition)
         FunctionType.VIDEO_RECOGNITION -> stringResource(id = R.string.function_desc_video_recognition)
-    }
-}
-
-private data class FunctionTestDisplay(
-    val outcome: ModelConnectionTestOutcome,
-    val message: String
-) {
-    companion object {
-        fun fromResponse(
-            context: android.content.Context,
-            functionType: FunctionType,
-            response: String
-        ): FunctionTestDisplay {
-            val understoodRes =
-                when (functionType) {
-                    FunctionType.IMAGE_RECOGNITION -> R.string.test_media_image_understood
-                    FunctionType.AUDIO_RECOGNITION -> R.string.test_media_audio_understood
-                    FunctionType.VIDEO_RECOGNITION -> R.string.test_media_video_understood
-                    else -> null
-                }
-            val unverifiedRes =
-                when (functionType) {
-                    FunctionType.IMAGE_RECOGNITION -> R.string.test_media_image_unverified
-                    FunctionType.AUDIO_RECOGNITION -> R.string.test_media_audio_unverified
-                    FunctionType.VIDEO_RECOGNITION -> R.string.test_media_video_unverified
-                    else -> null
-                }
-            if (understoodRes == null || unverifiedRes == null) {
-                return FunctionTestDisplay(
-                    outcome = ModelConnectionTestOutcome.PASSED,
-                    message =
-                        response.ifBlank {
-                            context.getString(R.string.test_connection_success)
-                        }
-                )
-            }
-            val matched =
-                when (functionType) {
-                    FunctionType.IMAGE_RECOGNITION -> MediaCapabilityProbe.matchesImage(response)
-                    FunctionType.AUDIO_RECOGNITION -> MediaCapabilityProbe.matchesAudio(response)
-                    FunctionType.VIDEO_RECOGNITION -> MediaCapabilityProbe.matchesVideo(response)
-                    else -> false
-                }
-            return if (matched) {
-                FunctionTestDisplay(
-                    outcome = ModelConnectionTestOutcome.PASSED,
-                    message = context.getString(understoodRes)
-                )
-            } else {
-                FunctionTestDisplay(
-                    outcome = ModelConnectionTestOutcome.UNVERIFIED,
-                    message = context.getString(unverifiedRes)
-                )
-            }
-        }
     }
 }

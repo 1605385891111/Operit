@@ -142,19 +142,6 @@ browserClick({
 
 获取当前页面的文本快照，可控制是否包含链接与图片。
 
-#### `browserTakeScreenshot(options)`
-
-```ts
-browserTakeScreenshot({
-  type?: string,
-  element?: string,
-  ref?: string,
-  fullPage?: boolean
-}): Promise<string>
-```
-
-截取当前页面或快照元素的图片。`type` 省略时使用 `png`。`ref` 与 `element` 必须成对提供，`fullPage` 控制是否截取完整页面。
-
 #### `browserFileUpload(sessionId, paths?)`
 
 处理页面文件选择器；未传 `paths` 时表示取消。

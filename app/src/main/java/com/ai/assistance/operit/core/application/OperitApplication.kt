@@ -5,9 +5,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
 import android.os.Build
+import android.os.LocaleList
 import android.system.Os
 import com.ai.assistance.operit.util.AppLogger
 import androidx.appcompat.app.AppCompatDelegate
+import androidx.core.os.LocaleListCompat
 import androidx.work.Configuration as WorkConfiguration
 import androidx.work.WorkManager
 import coil.decode.GifDecoder
@@ -35,6 +37,7 @@ import com.ai.assistance.operit.core.workflow.WorkflowSchedulerInitializer
 import com.ai.assistance.operit.data.backup.RoomDatabaseBackupPreferences
 import com.ai.assistance.operit.data.backup.RoomDatabaseBackupScheduler
 import com.ai.assistance.operit.data.db.AppDatabase
+import com.ai.assistance.operit.data.preferences.CharacterCardManager
 import com.ai.assistance.operit.data.preferences.ExternalHttpApiPreferences
 import com.ai.assistance.operit.data.preferences.UserPreferencesManager
 import com.ai.assistance.operit.data.preferences.WakeWordPreferences
@@ -42,7 +45,6 @@ import com.ai.assistance.operit.data.preferences.initAndroidPermissionPreference
 import com.ai.assistance.operit.data.preferences.initUserPreferencesManager
 import com.ai.assistance.operit.data.preferences.preferencesManager
 import com.ai.assistance.operit.data.repository.CustomEmojiRepository
-import com.ai.assistance.operit.data.stats.TokenUsageRepository
 import com.ai.assistance.operit.ui.features.chat.webview.LocalWebServer
 import com.ai.assistance.operit.ui.features.chat.webview.workspace.editor.language.LanguageFactory
 import com.ai.assistance.operit.util.GlobalExceptionHandler
@@ -176,16 +178,6 @@ class OperitApplication : Application(), ImageLoaderFactory, WorkConfiguration.P
         initUserPreferencesManager(applicationContext, defaultProfileName)
         AppLogger.d(TAG, "【启动计时】用户偏好管理器初始化完成 - ${System.currentTimeMillis() - startTime}ms")
 
-        // Run the legacy token import during startup so upgrades retain statistics
-        // even when the user opens another screen before visiting token stats.
-        applicationScope.launch {
-            try {
-                TokenUsageRepository.getInstance(applicationContext).ensureInitialized()
-            } catch (error: Throwable) {
-                AppLogger.e(TAG, "Token statistics migration failed", error)
-            }
-        }
-
         AppLogger.d(TAG, "【启动计时】Android权限偏好管理器已就绪 - ${System.currentTimeMillis() - startTime}ms")
 
         // 在最早时机初始化并应用语言设置（必须在获取字符串资源之前）
@@ -224,6 +216,13 @@ class OperitApplication : Application(), ImageLoaderFactory, WorkConfiguration.P
         memoryAutoSaveScheduler = MemoryAutoSaveScheduler(applicationContext, applicationScope)
             .also { it.start() }
         AppLogger.d(TAG, "【启动计时】长期记忆自动保存轮询器启动完成 - ${System.currentTimeMillis() - startTime}ms")
+
+        // 初始化功能提示词管理器
+        applicationScope.launch {
+            val characterStartTime = System.currentTimeMillis()
+            CharacterCardManager.getInstance(applicationContext).initializeIfNeeded()
+            AppLogger.d(TAG, "【启动计时】功能提示词管理器初始化完成（异步） - ${System.currentTimeMillis() - characterStartTime}ms")
+        }
 
         // 初始化当前活跃角色目标的自定义表情
         applicationScope.launch {
@@ -542,18 +541,19 @@ class OperitApplication : Application(), ImageLoaderFactory, WorkConfiguration.P
             // 立即应用语言设置
             val locale = LocaleUtils.getLocaleForLanguageCode(languageCode, this)
             // 设置默认语言
-            LocaleUtils.setDefaultLocales(locale)
+            Locale.setDefault(locale)
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 // Android 13+ 使用AppCompatDelegate API
-                val localeList = LocaleUtils.createCompatLocaleList(locale)
+                val localeList = LocaleListCompat.create(locale)
                 AppCompatDelegate.setApplicationLocales(localeList)
                 AppLogger.d(TAG, "使用AppCompatDelegate设置语言: $languageCode")
             } else {
                 // 较旧版本Android - 此处使用的部分更新将在attachBaseContext中完成更完整更新
                 val config = Configuration()
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                    val localeList = LocaleUtils.createPlatformLocaleList(locale)
+                    val localeList = LocaleList(locale)
+                    LocaleList.setDefault(localeList)
                     config.setLocales(localeList)
                 } else {
                     config.locale = locale
@@ -573,12 +573,15 @@ class OperitApplication : Application(), ImageLoaderFactory, WorkConfiguration.P
         try {
             val code = LocaleUtils.getCurrentLanguage(base)
             val locale = LocaleUtils.getLocaleForLanguageCode(code, base)
-            val config = LocaleUtils.createLocaleOverrideConfiguration(locale)
+            val config = Configuration(base.resources.configuration)
 
             // 设置语言配置
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                LocaleUtils.setDefaultLocales(locale)
+                val localeList = LocaleList(locale)
+                LocaleList.setDefault(localeList)
+                config.setLocales(localeList)
             } else {
+                config.locale = locale
                 Locale.setDefault(locale)
             }
 

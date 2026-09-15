@@ -2,9 +2,6 @@ package com.ai.assistance.operit.core.config
 
 import com.ai.assistance.operit.core.avatar.common.state.AvatarCustomMoodDefinition
 import com.ai.assistance.operit.core.avatar.common.state.AvatarMoodTypes
-import com.ai.assistance.operit.data.model.ConversationSummaryConfig
-import com.ai.assistance.operit.data.model.SummarySectionConfig
-import com.ai.assistance.operit.data.model.SummarySectionOverride
 
 /**
  * A centralized repository for system prompts used across various functional services.
@@ -115,176 +112,27 @@ object FunctionalPrompts {
         return if (useEnglish) SUMMARY_PROMPT_EN else SUMMARY_PROMPT
     }
 
-    private val summarySectionIds = listOf("core_task", "interaction", "progress", "key_info")
-
-    private fun summarySectionTitles(useEnglish: Boolean): List<String> {
-        return if (useEnglish) {
-            listOf(
-                "Core Task Status",
-                "Interaction & Scenario",
-                "Conversation Progress & Overview",
-                "Key Information & Context"
-            )
-        } else {
-            listOf("核心任务状态", "互动情节与设定", "对话历程与概要", "关键信息与上下文")
-        }
-    }
-
-    private fun summaryPromptTemplate(useEnglish: Boolean): SummaryPromptTemplate {
-        val prompt = summaryPrompt(useEnglish).trimIndent()
-        val titles = summarySectionTitles(useEnglish)
-        val separator = if (useEnglish) "=======================================" else "============================"
-        val starts = titles.map { title ->
-            prompt.indexOf(summarySectionHeader(title, useEnglish)).also { start ->
-                check(start >= 0) { "Summary prompt is missing section: $title" }
-            }
-        }
-        val sections = starts.mapIndexed { index, start ->
-            val end = starts.getOrNull(index + 1) ?: prompt.indexOf(separator, start)
-            check(end >= 0) { "Summary prompt is missing the end of section: ${titles[index]}" }
-            val block = prompt.substring(start, end)
-            SummaryPromptSection(
-                config = SummarySectionConfig(
-                    id = summarySectionIds[index],
-                    title = titles[index],
-                    instruction = block.substringAfter('\n').trimEnd()
-                ),
-                block = block
-            )
-        }
-        return SummaryPromptTemplate(
-            prefix = prompt.substring(0, starts.first()),
-            sections = sections,
-            suffix = prompt.substring(sections.last().block.let { starts.last() + it.length })
-        )
-    }
-
-    private fun legacyPromptSections(useEnglish: Boolean): List<SummarySectionConfig> {
-        return summaryPromptTemplate(useEnglish).sections.map { it.config }
-    }
-
-    fun resolveSummarySections(
-        overrides: List<SummarySectionOverride>,
-        useEnglish: Boolean
-    ): List<SummarySectionConfig> {
-        val overridesById = overrides.associateBy { it.id.trim() }
-        return legacyPromptSections(useEnglish).map { defaultSection ->
-            val override = overridesById[defaultSection.id] ?: return@map defaultSection
-            defaultSection.copy(
-                enabled = override.enabled ?: defaultSection.enabled,
-                title = override.title?.trim()?.takeIf { it.isNotBlank() } ?: defaultSection.title,
-                instruction =
-                    override.instruction?.trim()?.takeIf { it.isNotBlank() }
-                        ?: defaultSection.instruction
-            )
-        }
-    }
-
-    fun buildSummarySectionOverrides(
-        sections: List<SummarySectionConfig>,
-        useEnglish: Boolean
-    ): List<SummarySectionOverride> {
-        val sectionsById = sections.associateBy { it.id.trim() }
-        return legacyPromptSections(useEnglish).mapNotNull { defaultSection ->
-            val section = sectionsById[defaultSection.id] ?: return@mapNotNull null
-            val enabled = section.enabled.takeIf { it != defaultSection.enabled }
-            val title = section.title.trim().takeIf { it.isNotBlank() && it != defaultSection.title }
-            val instruction =
-                section.instruction.trim().takeIf {
-                    it.isNotBlank() && it != defaultSection.instruction
-                }
-            if (enabled == null && title == null && instruction == null) {
-                null
-            } else {
-                SummarySectionOverride(
-                    id = defaultSection.id,
-                    enabled = enabled,
-                    title = title,
-                    instruction = instruction
-                )
-            }
-        }
-    }
-
-    fun buildSummarySystemPrompt(
-        previousSummary: String?,
-        useEnglish: Boolean,
-        summaryConfig: ConversationSummaryConfig = ConversationSummaryConfig()
-    ): String {
+    fun buildSummarySystemPrompt(previousSummary: String?, useEnglish: Boolean): String {
         var prompt = summaryPrompt(useEnglish).trimIndent()
-        if (summaryConfig.sectionOverrides.isNotEmpty()) {
-            prompt = applySummarySectionOverrides(summaryConfig.sectionOverrides, useEnglish)
-        }
-        val promptWithPreviousSummary = appendPreviousSummary(prompt, previousSummary, useEnglish)
-        return summaryConfig.globalRules?.trim()?.takeIf { it.isNotBlank() }?.let { rules ->
-            "$promptWithPreviousSummary\n\n$rules"
-        } ?: promptWithPreviousSummary
-    }
+        if (!previousSummary.isNullOrBlank()) {
+            prompt +=
+                if (useEnglish) {
+                    """
 
-    private fun applySummarySectionOverrides(
-        overrides: List<SummarySectionOverride>,
-        useEnglish: Boolean
-    ): String {
-        val template = summaryPromptTemplate(useEnglish)
-        val overridesById = overrides.associateBy { it.id.trim() }
-        return buildString {
-            append(template.prefix)
-            template.sections.forEach { section ->
-                val override = overridesById[section.config.id]
-                if (override?.enabled != false) {
-                    val title = override?.title?.trim()?.takeIf { it.isNotBlank() }
-                    val instruction = override?.instruction?.trim()?.takeIf { it.isNotBlank() }
-                    if (title == null && instruction == null) {
-                        append(section.block)
-                    } else {
-                        append(summarySectionHeader(title ?: section.config.title, useEnglish))
-                        append('\n')
-                        append(instruction ?: section.config.instruction)
-                        append("\n\n")
-                    }
+                    Previous Summary (to inherit context):
+                    ${previousSummary.trim()}
+                    Please merge the key information from the previous summary with the new conversation and generate a brand-new, more complete summary.
+                    """.trimIndent()
+                } else {
+                    """
+
+                    上一次的摘要（用于继承上下文）：
+                    ${previousSummary.trim()}
+                    请将以上摘要中的关键信息，与本次新的对话内容相融合，生成一份全新的、更完整的摘要。
+                    """.trimIndent()
                 }
-            }
-            append(template.suffix)
         }
-    }
-
-    private data class SummaryPromptSection(
-        val config: SummarySectionConfig,
-        val block: String
-    )
-
-    private data class SummaryPromptTemplate(
-        val prefix: String,
-        val sections: List<SummaryPromptSection>,
-        val suffix: String
-    )
-
-    private fun summarySectionHeader(title: String, useEnglish: Boolean): String {
-        return if (useEnglish) "[$title]" else "【$title】"
-    }
-
-    private fun appendPreviousSummary(
-        prompt: String,
-        previousSummary: String?,
-        useEnglish: Boolean
-    ): String {
-        if (previousSummary.isNullOrBlank()) return prompt
-        return prompt +
-            if (useEnglish) {
-                """
-
-                Previous Summary (to inherit context):
-                ${previousSummary.trim()}
-                Please merge the key information from the previous summary with the new conversation and generate a brand-new, more complete summary.
-                """.trimIndent()
-            } else {
-                """
-
-                上一次的摘要（用于继承上下文）：
-                ${previousSummary.trim()}
-                请将以上摘要中的关键信息，与本次新的对话内容相融合，生成一份全新的、更完整的摘要。
-                """.trimIndent()
-            }
+        return prompt
     }
 
     /**
@@ -1129,7 +977,6 @@ $existingFoldersPrompt
 - If no valuable long-term signal exists, return `{}`.
 
 [Extraction policy]
-- A provided existing memory is a retrieval hint, not evidence. Update, merge, or link it only when the conversation explicitly establishes the same subject and fact; otherwise ignore it.
 - Prefer `update` / `merge` over creating `new`.
 - Use `new` only when concept is truly novel (max 5 items).
 - In long-running fiction, recurring characters/places/factions/rules/timeline constraints are valid memories.
@@ -1184,14 +1031,15 @@ $memoryExtractionCustomRulesInstruction
 - Current turn confirms relation between an existing memory and a new/existing event: add a link even if `new` is empty.
 
 [Output schema - strict JSON only]
-- Except for `{}`, always include `main`, `new`, `update`, `merge`, and `links`${if (profileUpdateEnabled) ", `profile_markdown`" else ""}. Every array item must be a named object; positional arrays are forbidden.
-- `main`: `null` or `{"title":"...","content":"...","tags":["..."],"folder_path":"..."}`.
-- `new`: `[{"title":"...","content":"...","tags":["..."],"folder_path":"...","alias_for":null}, ...]`.
-- `update`: `[{"title":"...","content":"new full content","reason":"...","credibility":null,"importance":null}, ...]`.
-- `merge`: `[{"source_titles":["A","B"],"title":"...","content":"...","tags":["..."],"folder_path":"...","reason":"..."}, ...]`.
-- `links`: `[{"source":"...","target":"...","type":"UPPER_SNAKE_CASE","description":"...","weight":0.0}, ...]`.
-- `credibility`, `importance`, and `weight` are JSON numbers from 0.0 to 1.0; `credibility`, `importance`, and `alias_for` may be JSON `null`.
+- Keys: `main`, `new`, `update`, `merge`, `links`${if (profileUpdateEnabled) ", `profile_markdown`" else ""}.
+- `main`: `["Title", "Content", ["tags"], "folder_path"]` or `null`.
+- `new`: `[["Title", "Content", ["tags"], "folder_path", "alias_for_or_null"], ...]`.
+- `update`: `[["Title", "New full content", "Reason", credibility_or_null, importance_or_null], ...]`.
+- `merge`: `[{"source_titles":["A","B"],"new_title":"...","new_content":"...","new_tags":["..."],"folder_path":"...","reason":"..."}, ...]`.
+- `links`: `[["Source", "Target", "RELATION_TYPE", "Description", weight], ...]` (type must be UPPER_SNAKE_CASE).
+- Numeric ranges: `credibility_or_null`, `importance_or_null`, and link `weight` must be JSON numbers between 0.0 and 1.0 inclusive, or JSON `null` where the schema allows null.
 $profileMarkdownSchemaLine
+- Use JSON `null` for missing optional values.
 
 $profileUpdateInstruction
 
@@ -1212,7 +1060,6 @@ $existingFoldersPrompt
 - 若没有长期价值信号，直接返回 `{}`。
 
 【抽取策略】
-- 提供的已有记忆只是检索线索，不是事实证据；只有对话明确证明主体和事实相同时才可 `update`、`merge` 或连边，否则忽略该候选。
 - 优先 `update` / `merge`，其次才是 `new`。
 - `new` 仅在确实新增概念时使用（最多 5 条）。
 - 长期小说/世界观场景中，反复出现且影响连续性的角色、地点、组织、规则、时间线可以入库。
@@ -1267,14 +1114,15 @@ $memoryExtractionCustomRulesInstruction
 - 本轮确认了"已有样本记忆"和其他记忆的明确关系：即使没有 `new`，也应在 `links` 中体现。
 
 【输出格式（严格JSON）】
-- 除返回 `{}` 外，必须包含 `main`、`new`、`update`、`merge`、`links`${if (profileUpdateEnabled) "、`profile_markdown`" else ""}；数组中的每一项必须是具名对象，禁止位置数组。
-- `main`：`null` 或 `{"title":"...","content":"...","tags":["..."],"folder_path":"..."}`。
-- `new`：`[{"title":"...","content":"...","tags":["..."],"folder_path":"...","alias_for":null}, ...]`。
-- `update`：`[{"title":"...","content":"新完整内容","reason":"...","credibility":null,"importance":null}, ...]`。
-- `merge`：`[{"source_titles":["A","B"],"title":"...","content":"...","tags":["..."],"folder_path":"...","reason":"..."}, ...]`。
-- `links`：`[{"source":"...","target":"...","type":"大写下划线关系","description":"...","weight":0.0}, ...]`。
-- 可信度、重要性、权重必须是 0.0 到 1.0 的 JSON 数字；可信度、重要性和 `alias_for` 可用 JSON `null`。
+- 顶层键：`main`、`new`、`update`、`merge`、`links`${if (profileUpdateEnabled) "、`profile_markdown`" else ""}。
+- `main`: `["标题","内容",["标签"],"folder_path"]` 或 `null`。
+- `new`: `[["标题","内容",["标签"],"folder_path","alias_for_or_null"], ...]`。
+- `update`: `[["标题","新完整内容","原因",可信度或null,重要性或null], ...]`。
+- `merge`: `[{"source_titles":["A","B"],"new_title":"...","new_content":"...","new_tags":["..."],"folder_path":"...","reason":"..."}, ...]`。
+- `links`: `[["源","目标","RELATION_TYPE","描述",权重], ...]`，关系类型用大写下划线。
+- 数值范围：可信度、重要性、链接权重必须是 0.0 到 1.0（含边界）的 JSON 数字；允许缺失的位置使用 JSON `null`。
 $profileMarkdownSchemaLine
+- 可选值缺失时使用 JSON `null`。
 
 $profileUpdateInstruction
 

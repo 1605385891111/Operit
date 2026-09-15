@@ -40,8 +40,6 @@
 
 Operit 会核对 Release 资产与本地所选文件是否相同，并由市场服务确认该 Release 的创建者就是当前登录的 GitHub 作者。Release 正文只保留作者自己的发布说明，不需要添加 Operit 标记、校验文本或其他额外内容。
 
-发布页面会自动保存未提交的表单草稿，并在市场登记成功后清空对应草稿。ToolPkg 的发布版本来自包内 manifest，识别后发布页不允许手动修改登记版本号。被审核打回后的修改版能否提交由市场服务在提交时判定，客户端只展示服务端返回的结果。
-
 仓库可以只维护一个插件，也可以由作者自行组织多个插件；市场不要求固定的仓库数量。引用 Release 路线的关键是持续维护 Git 项目，直接上传路线的关键是只负责当前包的构建与 UI 上传。
 
 ---
@@ -311,7 +309,6 @@ my-script-project/
 METADATA
 {
     "name": "Automatic_bilibili_assistant",
-    "version": "1.0.0",
     "display_name": {
         "zh": "B站智能助手",
         "en": "Bilibili Assistant"
@@ -341,7 +338,6 @@ METADATA
 ```
 
 -   `name`: 脚本的唯一标识符。
--   `version`: （可选）脚本包自身的版本号，建议使用 `major.minor.patch` 格式；ToolPkg 的 `requires[].min_version` / `requires[].max_version` 会使用这个版本进行约束检查。
 -   `display_name`: （可选，推荐）用于界面显示的名称。不会影响脚本 ID；脚本 ID 仍由 `name` 决定。支持字符串或多语言对象（见 3.1.2）。
 -   `description`: 对脚本功能的详细描述。
 -   `author`: （可选）作者信息，支持单个字符串或字符串数组。
@@ -856,21 +852,7 @@ TypeScript 脚本 (`.ts`) 需要被编译成 JavaScript (`.js`)才能被执行�
 
 - **Android SDK (ADB)**: 确保你已经安装了 Android SDK，并且 `adb` 命令在你的系统路径中可用。
 - **安卓设备**: 连接一台开启了“USB调试”功能的安卓设备，并已授权电脑进行调试。
-- **Operit 应用程序**: 确保 `com.ai.assistance.operit.debug` 或 `com.ai.assistance.operit` 已经安装并在目标设备上运行。脚本会优先选择已安装的 Debug 包；也可以通过 `OPERIT_APP_PACKAGE` 指定其中一个。脚本的执行依赖于应用内的 `ScriptExecutionReceiver` 来接收和处理来自 ADB 的命令。
-
-如果 Debug 和 Release APK 同时安装，默认使用 `com.ai.assistance.operit.debug`。想调试 Release APK 时，在启动脚本前设置：
-
-```cmd
-set OPERIT_APP_PACKAGE=com.ai.assistance.operit
-```
-
-Linux/macOS 使用：
-
-```bash
-export OPERIT_APP_PACKAGE=com.ai.assistance.operit
-```
-
-脚本会输出实际选择的 applicationId，并据此生成临时目录、广播 action 和 receiver。
+- **Operit 应用程序**: 确保 `com.ai.assistance.operit` 应用程序已经安装并在目标设备上运行。脚本的执行依赖于应用内的 `ScriptExecutionReceiver` 来接收和处理来自 ADB 的命令。
 
 ### 9.2. 执行脚本函数
 

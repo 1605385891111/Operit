@@ -727,10 +727,8 @@
     <!-- Context Menu -->
     <string name="copy_message">Copy Message</string>
     <string name="markdown_source">Markdown source</string>
-    <string name="xml_source">XML source</string>
     <string name="copy_plain_text">Copy plain text</string>
     <string name="copy_markdown_source">Copy Markdown source</string>
-    <string name="copy_xml_source">Copy XML source</string>
     <string name="chat_hidden_user_message_placeholder">Auto-triggered user message (content hidden)</string>
     <string name="chat_hidden_user_message_badge">AUTO</string>
     <string name="info">Info</string>
@@ -783,7 +781,6 @@
     <string name="exit_multi_select">Exit Multi-select</string>
     <string name="select_all_messages">Select all</string>
     <string name="clear_selection">Cancel</string>
-    <string name="multi_select_actions">Actions</string>
     <string name="delete_selected">Delete Selected</string>
     <string name="share_selected">Share</string>
     <string name="add_selected_to_memory">Add to summary memory</string>
@@ -950,16 +947,6 @@
     <string name="settings_summary_message_count_threshold_subtitle">Number of new messages to trigger summary (1-20)</string>
     <string name="settings_summary_custom_rules">Custom Summary Rules</string>
     <string name="settings_summary_custom_rules_desc">Extra rules sent when summarizing the conversation. Leave blank for none</string>
-    <string name="settings_summary_structure">Summary Structure</string>
-    <string name="settings_summary_section_enabled_desc">Turn off to omit this section from generated summaries</string>
-    <string name="settings_summary_section_title">Section Title</string>
-    <string name="settings_summary_section_title_desc">Title shown in the summary</string>
-    <string name="settings_summary_section_instruction">Section Instructions</string>
-    <string name="settings_summary_section_instruction_desc">Describe what this section should record</string>
-    <string name="settings_summary_dialogue_review">Conversation Review</string>
-    <string name="settings_summary_dialogue_review_desc">Append a program-generated record of users, assistants, and tool calls to the end of the summary</string>
-    <string name="settings_summary_dialogue_review_title">Review Title</string>
-    <string name="settings_summary_dialogue_review_title_desc">Title displayed at the end of the summary. Leave blank to use the default title</string>
     
     <string name="settings_section_display">Display and Behavior</string>
 
@@ -1083,9 +1070,8 @@
     <string name="tag_count_locked_status">Selected %1$d / Limit %2$d</string>
     
     <!-- Package Manager Screen -->
-    <string name="packages">Scripts</string>
+    <string name="packages">Packages</string>
     <string name="skills">Skills</string>
-    <string name="package_tab_skills">Skill</string>
     <string name="show_to_ai_short">AI</string>
     <string name="package_manager">Package Manager</string>
     <string name="available_packages">Available Packages</string>
@@ -1112,10 +1098,6 @@
     <string name="open_file_manager">Open File Manager</string>
     <string name="navigate_to_external_files">Please navigate to Android/data/com.ai.assistance.operit/files/packages directory</string>
     <string name="package_js_only">Only JavaScript (.js) and ToolPkg (.toolpkg) files are supported</string>
-    <string name="pkg_toolpkg_api_version">ToolPkg API: %1$s</string>
-    <string name="toolpkg_api_version_label">ToolPkg API version</string>
-    <string name="toolpkg_api_version_value">ToolPkg API version: %1$s</string>
-    <string name="pkg_toolpkg_requires">Required packages: %1$s</string>
     <string name="pkg_toolpkg_subpackages">ToolPkg Subpackages</string>
     <string name="pkg_toolpkg_version">Version: %1$s</string>
     <string name="pkg_toolpkg_resources">Resources: %1$d</string>
@@ -1498,110 +1480,6 @@
     <string name="title_activity_crash_report">Application Error</string>
     <string name="title_activity_data_recovery">Data Recovery</string>
     <string name="shortcut_data_recovery">Data Recovery</string>
-    <string name="data_recovery_raw_snapshot_section">Raw snapshot</string>
-    <string name="data_recovery_raw_snapshot_description">Export packages internal files, shared_prefs, datastore, databases, and the Android/data package directory. Import replaces the current app data.</string>
-    <string name="data_recovery_export_snapshot">Export snapshot</string>
-    <string name="data_recovery_import_snapshot">Import snapshot</string>
-    <string name="data_recovery_start_main_app">Launch main app</string>
-    <string name="data_recovery_file_management">File management</string>
-    <string name="data_recovery_file_management_description">This page does not open a file manager directly. To inspect or export internal files manually, open MT Manager, add a local storage repository, and select the Operit data repository. provider: %1$s</string>
-    <string name="data_recovery_sql_executor">SQL executor</string>
-    <string name="data_recovery_messages_size">messages size</string>
-    <string name="data_recovery_variants_size">variants size</string>
-    <string name="data_recovery_chats_fields">chats fields</string>
-    <string name="data_recovery_execute">Run</string>
-    <string name="data_recovery_sql_label">SQL</string>
-    <string name="data_recovery_import_snapshot_title">Import raw snapshot</string>
-    <string name="data_recovery_import_snapshot_message">Import replaces the current app data. Import this snapshot?</string>
-    <string name="data_recovery_import_action">Import</string>
-    <string name="data_recovery_cancel_action">Cancel</string>
-    <string name="data_recovery_started">Recovery process is ready</string>
-    <string name="data_recovery_affected_rows">Affected rows: %1$d</string>
-    <string name="data_recovery_query_result">Query results: %1$d rows</string>
-    <string name="data_recovery_launch_failed">Unable to launch the main app</string>
-    <string name="data_recovery_sql_empty">SQL is empty</string>
-    <string name="data_recovery_sql_running">Running SQL</string>
-    <string name="data_recovery_query_completed">Query complete: %1$d rows</string>
-    <string name="data_recovery_sql_completed">SQL execution complete</string>
-    <string name="data_recovery_database_health_section">Configuration and database check</string>
-    <string name="data_recovery_database_health_description">Checks whether configuration files and the database are working normally. A repair button appears only when a problem can be handled safely.</string>
-    <string name="data_recovery_database_check_action">Check configuration and database</string>
-    <string name="data_recovery_database_repair_action">Repair supported issues</string>
-    <string name="data_recovery_database_check_running">Checking configuration and database</string>
-    <string name="data_recovery_database_repair_running">Preserving source files and repairing configuration and database</string>
-    <string name="data_recovery_database_repair_completed">Configuration and database repair complete; verification passed</string>
-    <string name="data_recovery_database_repair_remaining">Repair actions completed, but configuration or database problems remain</string>
-    <string name="data_recovery_database_repair_failed_preserved">Repair failed, but the source files were preserved: %1$s</string>
-    <string name="data_recovery_database_repair_confirm_title">Confirm configuration and database repair</string>
-    <string name="data_recovery_database_repair_confirm_message">Unreadable configuration files and the current DB, WAL, SHM, and journal will be preserved in separate ZIP archives before the listed actions are executed. Content that cannot be handled safely will not be modified.</string>
-    <string name="data_recovery_database_repair_confirm_action">Start repair</string>
-    <string name="data_recovery_database_repair_archive">Database sources before repair:</string>
-    <string name="data_recovery_database_repair_plan">Repair actions to be executed</string>
-    <string name="data_recovery_database_repair_rebuild_indexes">Rebuild SQLite indexes</string>
-    <string name="data_recovery_database_repair_run_migrations">Run the released Room database migrations</string>
-    <string name="data_recovery_database_no_supported_repair">The current report has no repair operation that can be executed safely</string>
-    <string name="data_recovery_database_summary_healthy">Configuration and database checks passed</string>
-    <string name="data_recovery_database_summary_repairable">Configuration or database issues can be repaired</string>
-    <string name="data_recovery_database_summary_manual">Configuration or database issues require manual handling; source files were not modified</string>
-    <string name="data_recovery_database_checks_passed">%1$d/%2$d checks passed</string>
-    <string name="data_recovery_database_problem_summary">Issue: %1$s</string>
-    <string name="data_recovery_configuration_details">Configuration file details</string>
-    <string name="data_recovery_database_details">Database details</string>
-    <string name="data_recovery_configuration_check_files">Configuration files</string>
-    <string name="data_recovery_configuration_files_none">No configuration file has been created yet</string>
-    <string name="data_recovery_configuration_directory_invalid">The configuration directory path is invalid; source files were not modified</string>
-    <string name="data_recovery_configuration_directory_unreadable">The configuration directory cannot be read; source files were not modified</string>
-    <string name="data_recovery_configuration_file_invalid_path">The configuration file path is invalid; the source file was not modified</string>
-    <string name="data_recovery_configuration_file_corrupt">The configuration file cannot be read and can be reset after preserving the source</string>
-    <string name="data_recovery_configuration_file_check_failed">The configuration file check failed; the source file was not modified</string>
-    <string name="data_recovery_configuration_files_ok">Checked %1$d configuration files; all are readable</string>
-    <string name="data_recovery_configuration_no_supported_repair">The configuration report has no repair operation that can be executed safely</string>
-    <string name="data_recovery_configuration_changed_before_repair">Configuration file %1$s changed before repair, so the operation was stopped</string>
-    <string name="data_recovery_configuration_delete_failed">Unable to reset configuration file %1$s</string>
-    <string name="data_recovery_configuration_repair_reset_files">Reset %1$d unreadable configuration files</string>
-    <string name="data_recovery_configuration_repair_archive">Configuration sources before repair:</string>
-    <string name="data_recovery_database_check_owner">Database connection</string>
-    <string name="data_recovery_database_check_owner_failed">Unable to close the current Room owner: %1$s</string>
-    <string name="data_recovery_database_check_file">Database file</string>
-    <string name="data_recovery_database_file_missing">app_database does not exist</string>
-    <string name="data_recovery_database_file_invalid_path">The app_database path is not a regular file</string>
-    <string name="data_recovery_database_file_ok">Database file is readable, size %1$d bytes</string>
-    <string name="data_recovery_database_check_sidecars">SQLite sidecar files</string>
-    <string name="data_recovery_database_sidecars_invalid">These sidecar paths are not regular files: %1$s</string>
-    <string name="data_recovery_database_sidecars_none">No WAL, SHM, or journal file was found</string>
-    <string name="data_recovery_database_check_open">SQLite open check</string>
-    <string name="data_recovery_database_open_failed">Unable to open database: %1$s</string>
-    <string name="data_recovery_database_open_ok">Database opened successfully in read-only mode</string>
-    <string name="data_recovery_database_corruption_reported">SQLite reported database content corruption</string>
-    <string name="data_recovery_database_check_queries">SQLite check commands</string>
-    <string name="data_recovery_database_check_queries_failed">Database check command failed: %1$s</string>
-    <string name="data_recovery_database_check_integrity">SQLite integrity</string>
-    <string name="data_recovery_database_integrity_ok">PRAGMA quick_check returned ok</string>
-    <string name="data_recovery_database_check_version">Room database version</string>
-    <string name="data_recovery_database_version_current">Current version is %1$d and matches the application</string>
-    <string name="data_recovery_database_version_old">Current version is %1$d and can migrate to version %2$d</string>
-    <string name="data_recovery_database_version_newer">Database version %1$d is newer than application version %2$d</string>
-    <string name="data_recovery_database_version_invalid">Database version %1$d is invalid</string>
-    <string name="data_recovery_database_check_foreign_keys">Foreign key check</string>
-    <string name="data_recovery_database_foreign_keys_ok">No foreign key violations were found</string>
-    <string name="data_recovery_database_foreign_keys_failed">Found %1$d foreign key violations</string>
-    <string name="data_recovery_database_check_process">Repair process boundary</string>
-    <string name="data_recovery_database_main_process_running">The main application process is still running. Fully close it and check again.</string>
-    <string name="data_recovery_database_main_process_unknown">The main application process state cannot be verified, so configuration and database writes are disabled.</string>
-    <string name="data_recovery_database_main_process_stopped">The main application process is not running; isolated validation and the reported repair actions can be executed safely.</string>
-    <string name="data_recovery_database_check_room_schema">Room schema and migrations</string>
-    <string name="data_recovery_database_room_schema_process_blocked">The main application process has not stopped, so no isolated database copy was created.</string>
-    <string name="data_recovery_database_room_schema_sqlite_blocked">SQLite checks did not pass, so Room schema validation was not executed.</string>
-    <string name="data_recovery_database_room_schema_current_ok">The isolated copy passed Room validation for tables, columns, foreign keys, and indexes.</string>
-    <string name="data_recovery_database_room_schema_migration_ok">The isolated copy migrated to version %1$d and passed complete Room schema validation.</string>
-    <string name="data_recovery_database_room_schema_failed">The isolated copy did not pass Room schema or migration-chain validation, so the repair action remains disabled.</string>
-    <string name="data_recovery_export_running">Exporting raw snapshot</string>
-    <string name="data_recovery_export_completed">Raw snapshot export complete</string>
-    <string name="data_recovery_restore_running">Importing raw snapshot</string>
-    <string name="data_recovery_restore_completed">Raw snapshot import complete. Restart the app.</string>
-    <string name="data_recovery_export_progress">Export: %1$s</string>
-    <string name="data_recovery_restore_progress">Import: %1$s</string>
-    <string name="data_recovery_progress_percent"> %1$d%%</string>
 
     <!-- Crash Report Screen -->
     <string name="crash_report_header">The application has encountered an unrecoverable error and needs to restart.</string>
@@ -1775,7 +1653,6 @@
     <string name="message_info_token_input_short">↑</string>
     <string name="message_info_token_output_short">↓</string>
     <string name="message_info_token_cached_short">Cached</string>
-    <string name="message_info_token_hit_rate_short">Hit rate</string>
     <string name="message_info_unavailable">Not recorded</string>
     <string name="selected_content_copied">Selected content copied</string>
     <string name="requesting_root_permission">Requesting Root permission...</string>
@@ -2705,18 +2582,8 @@
     <!-- Speech Services Settings -->
     <string name="speech_services_tts_title">Text-to-Speech (TTS) Settings</string>
     <string name="speech_services_tts_desc">Configure how text is converted to voice output</string>
-    <string name="speech_services_tts_profiles">TTS Profiles</string>
     <string name="speech_services_stt_title">Speech-to-Text (STT) Settings</string>
     <string name="speech_services_stt_desc">Configure how speech is converted to text</string>
-    <string name="speech_services_stt_profiles">STT Profiles</string>
-    <string name="speech_services_profile_current">Current profile</string>
-    <string name="speech_services_profile_create">Create speech profile</string>
-    <string name="speech_services_profile_created">Speech profile created</string>
-    <string name="speech_services_profile_delete">Delete speech profile</string>
-    <string name="speech_services_profile_delete_message">Delete &quot;%1$s&quot;?</string>
-    <string name="speech_services_profile_loading">Loading speech profiles...</string>
-    <string name="speech_services_profile_migrated_tts">Migrated TTS configuration</string>
-    <string name="speech_services_profile_migrated_stt">Migrated STT configuration</string>
     <string name="speech_services_tts_speech_rate_value">Speech rate: %1$.2fx</string>
     <string name="speech_services_tts_pitch_value">Pitch: %1$.2fx</string>
     <string name="speech_services_service_type">Service Type</string>
@@ -2997,15 +2864,6 @@
     <string name="test_item_image">Image</string>
     <string name="test_item_audio">Audio</string>
     <string name="test_item_video">Video</string>
-    <string name="test_media_image_understood">This model can understand images</string>
-    <string name="test_media_audio_understood">This model can understand audio</string>
-    <string name="test_media_video_understood">This model can understand video</string>
-    <string name="test_media_image_unverified">The image request succeeded, but understanding could not be verified</string>
-    <string name="test_media_audio_unverified">The audio request succeeded, but understanding could not be verified</string>
-    <string name="test_media_video_unverified">The video request succeeded, but understanding could not be verified</string>
-    <string name="test_media_unverified">Connected, but not verified</string>
-    <string name="test_result_expand">Expand</string>
-    <string name="test_result_collapse">Collapse</string>
     <string name="expand_desc">Expand</string>
     <string name="selected_desc">Selected</string>
     <string name="functional_config_warning_image_unsupported">Warning: the selected model is not marked as “supports vision”, so image recognition may not work. Switch to a model that supports vision and enable “Model supports vision”.</string>
@@ -3357,7 +3215,7 @@
     <string name="thinking_type_off">off</string>
     <string name="thinking_type_mode">mode</string>
     <string name="thinking_quality">Thinking intensity</string>
-    <string name="thinking_quality_desc">Only effective in thinking mode. Available values follow the real mapping of the current model and provider.</string>
+    <string name="thinking_quality_desc">Only effective in thinking mode. GPT-5.6 models use five levels; other models retain the original four levels. Higher values use deeper reasoning.</string>
     <string name="model_config">Model Configuration</string>
     <string name="model_config_desc">Select a configured model here, or click Manage Configuration below to create or modify models</string>
     <string name="prompt">Prompt</string>
@@ -3596,7 +3454,7 @@
     <string name="chat_ai_computer_closed_due_to_workspace">AI computer closed (workspace opened)</string>
     <string name="ai_planning_desc">Will perform task decomposition and trigger multiple sub-agents to collect information, then summarize. Sub-agents have the same tool-calling capabilities as the chat agent. This can be very time-consuming, only recommended when collecting information.</string>
     <string name="thinking_mode">Thinking Mode</string>
-    <string name="thinking_mode_desc">Controls built-in model thinking and thinking intensity. Actual behavior depends on the current model and provider; some models may only support the on/off control.</string>
+    <string name="thinking_mode_desc">Currently supports Gemini, Qwen3, Claude, Doubao, NVIDIA, SiliconFlow and MNN local models, enabling built-in thinking.</string>
     <string name="model_selection">Model Selection</string>
     <string name="prompt_selection">Prompt Selection</string>
     <string name="memory_selection">Memory Selection</string>
@@ -3636,25 +3494,6 @@
     <string name="batch_assign_description">Batch assign selected chats to a character card or group. You can modify the group without changing the character card, or modify both.</string>
     <string name="batch_assign_title">Batch Assign Chat History</string>
     <string name="batch_assign_subtitle">Select multiple chat records and batch adjust character card binding or grouping</string>
-    <string name="chat_history_batch_operations_title">Batch Chat Operations</string>
-    <string name="chat_history_batch_operations_subtitle">Select chats to manage them or build their memory library</string>
-    <string name="chat_history_batch_management">Batch management</string>
-    <string name="chat_history_selected_actions">Actions for selected chats (%1$d)</string>
-    <string name="chat_history_selected_actions_title">Selected chat actions</string>
-    <string name="chat_memory_rebuild_title">Build Memory Library in Windows</string>
-    <string name="chat_memory_rebuild_subtitle">Extract memories from bounded windows of original user and assistant messages</string>
-    <string name="chat_memory_rebuild_window_size">Messages per window</string>
-    <string name="chat_memory_rebuild_window_size_value">%1$d messages</string>
-    <string name="chat_memory_rebuild_start">Build memory for %1$d selected chats</string>
-    <string name="chat_memory_rebuild_preparing">Reading chat records and planning windows...</string>
-    <string name="chat_memory_rebuild_progress">%1$s · Window %2$d/%3$d · Messages %4$d/%5$d · Failed %6$d</string>
-    <string name="chat_memory_rebuild_completed">Build complete: %1$d chats, %2$d windows, %3$d failed</string>
-    <string name="chat_memory_rebuild_cancel">Cancel build</string>
-    <string name="chat_memory_rebuild_cancelled">Build cancelled, %1$d/%2$d windows completed</string>
-    <string name="chat_memory_rebuild_failed">Build failed: %1$s</string>
-    <string name="chat_memory_rebuild_confirm_title">Confirm memory build</string>
-    <string name="chat_memory_rebuild_confirm_message">The %1$d selected chats will be sent to the memory model in order, with %2$d messages per window. The process makes model requests and writes to the corresponding memory space.</string>
-    <string name="chat_memory_rebuild_confirm_action">Start build</string>
     <string name="long_press_to_manage">Long press to manage</string>
     <string name="edit_title_desc">Edit title</string>
     <string name="reorder">Reorder</string>
@@ -3753,7 +3592,7 @@
     <string name="settings_per_request_cost">¥%1$.4f per request</string>
     <string name="settings_per_request_cost_with_currency">%1$s%2$.4f per request</string>
     <string name="settings_switch_billing_mode">Switch Billing Mode</string>
-    <string name="settings_model_details">Configuration Details</string>
+    <string name="settings_model_details">Model Details</string>
     <string name="settings_click_to_edit_pricing">Click to edit pricing</string>
     <string name="settings_edit_model_pricing">Edit Model Pricing - %1$s</string>
     <string name="settings_pricing_description">Set RMB price per million tokens</string>
@@ -3761,6 +3600,7 @@
     <string name="settings_pricing_description_with_currency">Set price per million tokens (%1$s)</string>
     <string name="settings_token_price_description_with_currency">Set price per API request (%1$s)</string>
     <string name="settings_exchange_rate_title">Exchange Rate</string>
+    <string name="settings_exchange_rate_subtitle">USD-priced models are converted to CNY total cost using this rate</string>
     <string name="settings_usd_to_cny_rate_label">USD → CNY Rate</string>
     <string name="settings_rate_applied_hint">Total cost converted with 1 USD = %1$.4f CNY</string>
     <string name="settings_input_price_per_million">Input Price (per million tokens)</string>
@@ -3773,7 +3613,6 @@
     <string name="settings_reset_model_counts">Reset This Model</string>
     <string name="settings_reset_model_confirmation">Reset Model Confirmation</string>
     <string name="settings_reset_model_warning">This will clear token and request count statistics for %1$s. This action cannot be undone.</string>
-    <string name="settings_token_stats_reset_failed">Failed to reset statistics. Please try again.</string>
     <string name="settings_reset">Reset</string>
     <string name="settings_edit_pricing">Edit Pricing</string>
     <string name="settings_input_tokens">Input Tokens</string>
@@ -3781,76 +3620,6 @@
     <string name="settings_cached_tokens_label">Cached Tokens</string>
     <string name="settings_price_format">$%.2f/1M</string>
     <string name="settings_cost">Cost</string>
-    <string name="token_stats_lifetime_total">Cumulative Usage</string>
-    <string name="token_stats_lifetime_models">Cumulative Models</string>
-    <string name="token_stats_lifetime_model_value">%1$s tokens · %2$d%%</string>
-    <string name="token_stats_tokens_total">Total Tokens</string>
-    <string name="token_stats_rate_default_hint">Default estimate: 1 USD = %1$s CNY (not set manually)</string>
-    <string name="token_stats_rate_applied_hint">Converted at 1 USD = %1$s CNY</string>
-    <string name="token_stats_rate_invalid">Rate must be a positive finite number</string>
-    <string name="token_stats_rate_summary">1 USD = %1$s CNY</string>
-    <string name="token_stats_rate_input_prefix">1 USD =</string>
-    <string name="token_stats_rate_estimated">Default estimate</string>
-    <string name="token_stats_rate_manual">Manual rate</string>
-    <string name="token_stats_rate_edit">Edit exchange rate</string>
-    <string name="token_stats_unknown_cost">%1$d request(s) with unknown cost</string>
-    <string name="token_stats_unknown_parts">%1$d request(s) with partially unknown data</string>
-    <string name="token_stats_request_count_compact">%1$s requests</string>
-    <string name="token_stats_unknown_part_suffix">unknown %1$d</string>
-    <string name="token_stats_token_uncached">Uncached input</string>
-    <string name="token_stats_token_cached">Cache read</string>
-    <string name="token_stats_cache_rate">Cache rate</string>
-    <string name="token_stats_token_output">Output</string>
-    <string name="token_stats_date_range">Date range</string>
-    <string name="token_stats_range_analysis">Range analysis</string>
-    <string name="token_stats_period_overview">Period overview</string>
-    <string name="token_stats_composition">Token composition</string>
-    <string name="token_stats_model_show_all">Show all (%1$d)</string>
-    <string name="token_stats_model_collapse">Collapse</string>
-    <string name="token_stats_filters">Filters</string>
-    <string name="token_stats_trends">Trend analysis</string>
-    <string name="token_stats_settings">Statistics settings</string>
-    <string name="token_stats_custom_range_confirm">OK</string>
-    <string name="token_stats_custom_range_invalid">End date must be after start date</string>
-    <string name="token_stats_custom_range_too_long">Custom range must not exceed 3 years</string>
-    <string name="token_stats_filter_all_models">All models</string>
-    <string name="token_stats_filter_models_count">%1$d models</string>
-    <string name="token_stats_filter_model_label">Model: %1$s</string>
-    <string name="token_stats_currency">Total currency</string>
-    <string name="token_stats_currency_cny">CNY</string>
-    <string name="token_stats_currency_usd">USD</string>
-    <string name="token_stats_chart_cost">Cost Trend</string>
-    <string name="token_stats_chart_requests">Request Trend</string>
-    <string name="token_stats_chart_tokens">Token Trend</string>
-    <string name="token_stats_metric_cost">Cost</string>
-    <string name="token_stats_metric_requests">Requests</string>
-    <string name="token_stats_metric_tokens">Token</string>
-    <string name="token_stats_no_data_in_range">No data in this range</string>
-    <string name="token_stats_empty">No statistics yet</string>
-    <string name="token_stats_empty_hint">Model call statistics will appear here</string>
-    <string name="token_stats_load_failed">Failed to load statistics. Please retry.</string>
-    <string name="token_stats_retry">Retry</string>
-    <string name="token_stats_model_count">%1$d models</string>
-    <string name="token_stats_configuration_count">%1$d configurations</string>
-    <string name="token_stats_model_expand">Expand or collapse details</string>
-    <string name="token_stats_pricing_configuration">Configuration price</string>
-    <string name="token_stats_pricing_model">Model price</string>
-    <string name="token_stats_price_label">Price</string>
-    <string name="token_stats_unknown_pricing">Pricing unknown</string>
-    <string name="token_stats_config_deleted">Deleted configuration</string>
-    <string name="token_stats_pricing_edit">Edit override</string>
-    <string name="token_stats_pricing_delete">Delete</string>
-    <string name="token_stats_pricing_input">Input price (per million)</string>
-    <string name="token_stats_pricing_cached">Cache read price (per million)</string>
-    <string name="token_stats_pricing_cache_write">Cache write price (per million)</string>
-    <string name="token_stats_pricing_output">Output price (per million)</string>
-    <string name="token_stats_pricing_per_request">Price per request</string>
-    <string name="token_stats_pricing_save_failed">Failed to save price override</string>
-    <string name="token_stats_pricing_delete_failed">Failed to delete price override</string>
-    <string name="token_stats_chart_prev_bucket">Previous time bucket</string>
-    <string name="token_stats_chart_next_bucket">Next time bucket</string>
-    <string name="token_stats_chart_bucket_of">Bucket %1$d of %2$d</string>
-    <string name="token_stats_chart_summary">%1$s, %2$s, %3$s, total %4$s</string>
     
     <!-- User Preferences Guide Screen -->
     <string name="user_male">Male</string>
@@ -4138,10 +3907,6 @@
     <string name="enable_direct_video_processing_desc">When enabled, video will be sent directly to the AI for processing instead of tool-based frame extraction/analysis</string>
     <string name="enable_google_search">Enable Google Search</string>
     <string name="enable_google_search_desc">When enabled, Gemini will use Google Search to enhance responses (may incur additional charges)</string>
-    <string name="enable_deepseek_web_search">Enable DeepSeek web search</string>
-    <string name="enable_deepseek_web_search_desc">When using a DeepSeek Responses endpoint, allow the model to use server-side web search.</string>
-    <string name="enable_codex_web_search">Enable Codex web search</string>
-    <string name="enable_codex_web_search_desc">When signed in to Codex, allow the model to use server-side web search.</string>
     <string name="enable_claude_1h_prompt_cache">Enable Claude 1-hour prompt cache</string>
     <string name="enable_claude_1h_prompt_cache_desc">When enabled, Claude and Claude-compatible providers use a 1-hour prompt cache TTL</string>
     <string name="enable_tool_call">Model supports ToolCall</string>
@@ -4149,10 +3914,6 @@
     <string name="enable_deepseek_reasoning">Enable DeepSeek Reasoning Mode</string>
     <string name="enable_deepseek_reasoning_desc">When enabled, content within &lt;think&gt; tags will be sent as reasoning_content to DeepSeek models, supporting tool invocation for reasoning models like DeepSeek-R1</string>
     <string name="search_sources">Search Sources</string>
-    <string name="search_query_label">Query</string>
-    <string name="search_action_label">Action</string>
-    <string name="search_status_label">Status</string>
-    <string name="search_source_count">%1$d sources</string>
     <string name="api_settings_saved">API settings saved</string>
     <string name="save_api_settings">Save API Settings</string>
     <string name="available_models_list">Available Models List</string>
@@ -4167,9 +3928,8 @@
     <string name="model_name_multiple_hint"> (can use comma to separate multiple models)</string>
     <string name="auto_save_failed">Auto save failed</string>
     <!-- API Provider names -->
-    <string name="provider_openai">ChatGPT API</string>
-    <string name="provider_xai">SpaceXAI (Grok)</string>
-    <string name="provider_openai_responses">ChatGPT Responses API</string>
+    <string name="provider_openai">OpenAI (GPT Series)</string>
+    <string name="provider_openai_responses">OpenAI (Responses API)</string>
     <string name="provider_openai_responses_generic">OpenAI Responses (Generic)</string>
     <string name="provider_anthropic">Anthropic (Claude Series)</string>
     <string name="provider_anthropic_generic">Anthropic (Generic)</string>
@@ -4187,7 +3947,6 @@
     <string name="provider_siliconflow">SiliconFlow</string>
     <string name="provider_iflow">iFlow</string>
     <string name="provider_openrouter">OpenRouter (Multi-model Hub)</string>
-    <string name="provider_opencode">OpenCode</string>
     <string name="provider_4router">4Router</string>
     <string name="provider_nous_portal">Nous Portal</string>
     <string name="provider_infiniai">InfiniAI</string>
@@ -4197,7 +3956,6 @@
     <string name="provider_openai_local">OpenAI-Compatible (Local Model)</string>
     <string name="provider_ppinfra">PPInfra Cloud</string>
     <string name="provider_novita">Novita AI</string>
-    <string name="provider_minimax">MiniMax</string>
     <string name="provider_openai_generic">OpenAI (Generic)</string>
     <string name="provider_other">Other Providers</string>
     <string name="provider_doubao">Doubao</string>
@@ -4206,8 +3964,6 @@
     <string name="provider_mnn">MNN Local Inference</string>
     <string name="select_api_provider_title">Select API Provider</string>
     <string name="search_providers">Search providers</string>
-    <string name="provider_section_generic_compatible">Generic Compatibility</string>
-    <string name="provider_section_proprietary">Dedicated Providers</string>
 
     <!-- llama.cpp Local Inference -->
     <string name="llama_local_model_tip">Local models are usually weaker. Consider disabling memory links and disabling tools for chat.</string>
@@ -4594,7 +4350,6 @@
 
     <!-- Model Configuration -->
     <string name="overseas_provider_warning">Detected that you are in mainland China but selected an overseas service provider. Please confirm whether you have enabled proxy tools</string>
-    <string name="international_proxy_provider_warning">This service routes requests through an international third-party proxy. Access from mainland China requires a proxy tool. Request data will be relayed by a third party; review your network environment, terms of service, and data compliance requirements.</string>
 
         <!-- Token Config WebView & URL Config Dialog -->
     <string name="custom_url_config">Custom URL Configuration</string>
@@ -5304,13 +5059,10 @@
     <string name="show_message_token_stats_description">Show compact token upload, output, and cache info below AI messages</string>
     <string name="show_message_timing_stats">Show Message Timing Summary</string>
     <string name="show_message_timing_stats_description">Show first-token and generation timing below AI messages</string>
-    <string name="show_message_token_speed">Show Message Token Generation Rate</string>
-    <string name="show_message_token_speed_description">Show output token generation rate below AI messages (t/s)</string>
     <string name="show_message_timestamp">Show Message Time</string>
     <string name="show_message_timestamp_description">Show the time of that AI message below it</string>
-    <string name="chat_message_token_stats_compact">token: %1$d ↑ %3$d (cache: %2$d) ↓ %4$d (hit: %5$s)</string>
+    <string name="chat_message_token_stats_compact">token: %1$d ↑ %3$d (cache: %2$d) ↓ %4$d</string>
     <string name="chat_message_timing_stats_compact">usage: %1$s (first %2$s out %3$s)</string>
-    <string name="chat_message_token_speed_compact">%1$s t/s</string>
     <string name="chat_message_timestamp_compact">time: %1$s</string>
     <string name="global_user_name">Global User Name</string>
     <string name="system_display_settings">System Display Settings</string>
@@ -5393,9 +5145,6 @@
     <string name="mood_tag_block">Mood Tag</string>
     <string name="thinking_tools_group_title_with_count">Thinking &amp; Tool Calls (%1$d)</string>
     <string name="tools_group_title_with_count">Tool Calls (%1$d)</string>
-    <string name="search_group_title">Search</string>
-    <string name="thinking_search_group_title">Thinking and searching</string>
-    <string name="thinking_search_tools_group_title_with_count">Thinking, searching, and calling tools (%1$d)</string>
     
     <!-- Backup Settings Screen -->
     <string name="backup_data_overview">Data Overview</string>
@@ -5470,10 +5219,8 @@
     <string name="backup_raw_snapshot_restore_confirm_message">This will overwrite current app data with the following backup:\n%1$s\n\nThis action cannot be undone. It is recommended to perform a backup before restoring.</string>
     <string name="backup_raw_snapshot_restore_confirm_action">Confirm restore</string>
     <string name="backup_raw_snapshot_restore_cancel_action">Cancel</string>
+
     <string name="backup_chat_history">Chat History</string>
-    <string name="backup_select_chat_records">Select chat records</string>
-    <string name="backup_select_chat_records_hint">Choose the chat records to export.</string>
-    <string name="backup_clear_selection">Clear selection</string>
     <string name="backup_chat_history_subtitle">Cross-format backup, export and recovery</string>
     <string name="backup_chat_current_count">Currently %1$d chat record(s).</string>
     
@@ -5490,7 +5237,6 @@
     <string name="backup_model_config_current_count">Currently %1$d model configuration(s).</string>
     
     <string name="backup_exporting">Exporting %1$s...</string>
-    <string name="backup_text_export_progress">Exporting long text: %1$d%% (%2$d / %3$d characters processed)</string>
     <string name="backup_importing">Importing %1$s...</string>
     <string name="backup_deleting">Clearing chat history...</string>
     <string name="backup_export_success">Export Successful</string>
@@ -5772,7 +5518,6 @@
     <string name="toolreg_update_chat_title_desc">Update chat title: %1$s</string>
     <string name="toolreg_delete_chat_desc">Delete chat: %1$s</string>
     <string name="toolreg_send_message_to_ai_desc">Send message to AI: %1$s</string>
-    <string name="toolreg_call_chat_model_desc">Call function model: %1$s</string>
     <string name="toolreg_list_character_cards_desc">List all character cards</string>
     <string name="toolreg_get_chat_messages_desc">Get chat messages: %1$s%2$s%3$s</string>
     <string name="toolreg_list_files_desc">List directory: %1$s%2$s</string>
@@ -6436,13 +6181,6 @@
 
     <!-- Workflow -->
     <string name="workflow_load_failed">Failed to load workflow</string>
-    <string name="workflow_storage_dir_unavailable">Unable to create workflow directory: %1$s</string>
-    <string name="workflow_storage_dir_unreadable">Unable to read workflow directory: %1$s</string>
-    <string name="workflow_storage_path_not_directory">Workflow storage path is not a directory: %1$s</string>
-    <string name="workflow_storage_file_parent_missing">Workflow file has no parent directory: %1$s</string>
-    <string name="workflow_storage_file_root_invalid">Workflow file format is invalid: %1$s is not a JSON object</string>
-    <string name="workflow_storage_invalid_files">Found %1$d invalid workflow file(s), skipped: %2$s</string>
-    <string name="workflow_storage_single_file_invalid">Workflow file format is invalid and cannot be opened: %1$s</string>
     <string name="workflow_create_failed">Failed to create workflow</string>
     <string name="workflow_update_condition_failed">Failed to update connection condition</string>
     <string name="workflow_update_failed">Failed to update workflow</string>
@@ -7031,7 +6769,6 @@
     <string name="mnn_error_with_message">Error: %1$s</string>
     <string name="mnn_session_not_initialized">Error: LLM session not initialized</string>
     <string name="mnn_reasoning_error">\n\n[Reasoning process error]</string>
-    <string name="mnn_error_request_cancelled">Request cancelled by user</string>
     <string name="mnn_generic_error">Error: %1$s</string>
     <string name="mnn_model_not_configured">Model name not configured</string>
     <string name="mnn_model_dir_missing">Model directory does not exist: %1$s\nPlease download the model first</string>
@@ -7302,7 +7039,6 @@
     <string name="llama_error_chat_template_failed">Error: Cannot apply model chat template (llama_model_chat_template/llama_chat_apply_template)</string>
     <string name="llama_error_inference_failed">llama.cpp inference process error</string>
     <string name="llama_error_inference_tag">[Inference error occurred]</string>
-    <string name="llama_error_request_cancelled">Request cancelled by user</string>
 
     <!-- TaskExecutor -->
     <string name="task_error_execution_failed">Task execution failed: %1$s</string>
@@ -7914,7 +7650,7 @@
     <string name="market_tab_mine">Mine</string>
     <string name="market_category_type_all">All</string>
     <string name="market_category_type_script">Script</string>
-    <string name="market_category_type_package">Plugin</string>
+    <string name="market_category_type_package">Package</string>
     <string name="market_category_type_skill">Skill</string>
     <string name="market_category_type_mcp">MCP</string>
     <string name="market_category_search_research">Search &amp; Research</string>
@@ -8007,10 +7743,6 @@
     <string name="chat_delete_single_variant_unavailable">No single message candidates available for deletion</string>
     <string name="chat_delete_single_variant_failed">Failed to delete single message: %1$s</string>
     <string name="chat_delete_message_confirm_message">Are you sure you want to delete this message? This action cannot be undone.</string>
-    <plurals name="chat_delete_selected_messages_confirm">
-        <item quantity="one">Delete %1$d selected message? This cannot be undone.</item>
-        <item quantity="other">Delete %1$d selected messages? This cannot be undone.</item>
-    </plurals>
 
     <string name="quick_plugin_creator_title">Quickly Create Your Plugin</string>
     <string name="quick_plugin_creator_desc">Cannot find the plugin you want in the built-in list or marketplace? Create your own.</string>
@@ -8208,8 +7940,6 @@
     <string name="artifact_publish_published_name_readonly">The name of a published artifact cannot be modified</string>
     <string name="artifact_publish_locked_name_must_match_source">When publishing based on a version, the plugin name must match the source version</string>
     <string name="artifact_publish_published_version_readonly">The version number of a published node cannot be modified</string>
-    <string name="artifact_publish_toolpkg_version_readonly">ToolPkg publish version comes from the package manifest and cannot be edited before publishing</string>
-    <string name="artifact_publish_toolpkg_api_version_readonly">ToolPkg API version comes from the package manifest and cannot be edited before publishing</string>
     <string name="artifact_publish_save_artifact_info">Save artifact info</string>
     <string name="artifact_publish_publish_update_version">Publish update version</string>
     <string name="artifact_publish_confirm_save_artifact_info">Confirm save artifact info</string>
@@ -8269,8 +7999,10 @@
     <string name="artifact_publish_encrypt_market_toolpkg_title">Minify and Obfuscate for Publishing</string>
 
     <string name="market_manage_resubmit">Resubmit</string>
+    <string name="market_manage_revision_cooldown">Revision submission is cooling down after the review return. Please wait %1$s.</string>
     <string name="market_manage_resubmitting_title">Resubmitting</string>
     <string name="market_manage_resubmitting_message">Submitting review request, please wait…</string>
+    <string name="market_manage_resubmit_cooldown_message">This entry is in local cooldown. Remaining %1$s before resubmission.</string>
     <string name="market_manage_resubmit_rejected_blocked">This entry has been rejected and the client does not allow resubmission.</string>
     <string name="market_manage_resubmit_state_blocked">Only returned entries can be resubmitted.</string>
     <string name="market_manage_resubmit_confirm_title">Confirm resubmission?</string>
@@ -8279,6 +8011,7 @@
     <string name="market_manage_resubmit_last_reason">Return reason: %1$s</string>
     <string name="market_manage_review_detail">Review detail: %1$s</string>
     <string name="market_manage_review_dialog_title">Review Status</string>
+    <string name="market_manage_resubmit_confirm_warning">Please confirm that modifications have been made according to the return reason. After successful submission, resubmission is not allowed within 12 hours locally.</string>
     <string name="market_manage_resubmit_confirm_action">Confirm Submission</string>
     <string name="artifact_publish_encrypt_market_toolpkg_desc">When enabled, executable scripts in ToolPkg will undergo JS syntax tree compression. The compressed package remains a normal ZIP and can be imported directly.</string>
     <string name="artifact_publish_encrypt_market_toolpkg_confirmation">Compress and obfuscate release: %1$s</string>
@@ -8286,24 +8019,6 @@
     <string name="artifact_publish_asset_source_upload">Upload current local package</string>
     <string name="artifact_publish_asset_source_github_release">Reference GitHub Release asset</string>
     <string name="artifact_publish_asset_source_confirmation">Release asset source: %1$s</string>
-    <string name="artifact_publish_logo_title">Package Logo</string>
-    <string name="artifact_publish_logo_description">Choose an image for the package. Direct upload writes it into the published package; GitHub Release mode updates the market logo only.</string>
-    <string name="artifact_publish_logo_choose">Choose Logo</string>
-    <string name="artifact_publish_logo_use_package">Use Package Logo</string>
-    <string name="artifact_publish_logo_selected">Selected: %1$s</string>
-    <string name="artifact_publish_logo_from_package">Package logo: %1$s</string>
-    <string name="artifact_publish_logo_confirmation">Logo: %1$s</string>
-    <string name="artifact_publish_logo_preview">Logo preview</string>
-    <string name="artifact_publish_logo_invalid">Could not read the logo. Choose a valid SVG, PNG, JPEG, or WebP file.</string>
-    <string name="artifact_publish_logo_too_large">The logo file must be 512 KiB or smaller.</string>
-    <string name="artifact_publish_logo_market_preview">Preview Market Effect</string>
-    <string name="artifact_publish_logo_market_preview_title">Market Preview</string>
-    <string name="artifact_publish_logo_market_list">List</string>
-    <string name="artifact_publish_logo_market_detail">Details</string>
-    <string name="artifact_publish_logo_market_preview_action">Install Package (Preview)</string>
-    <string name="artifact_publish_logo_market_preview_account">Current account</string>
-    <string name="artifact_publish_logo_market_preview_untitled">Untitled package</string>
-    <string name="artifact_publish_logo_market_preview_empty_description">No description</string>
     <string name="artifact_publish_github_repository_url">Author GitHub repository link</string>
     <string name="artifact_publish_load_github_releases">Load Release</string>
     <string name="artifact_publish_github_release">GitHub Release</string>
@@ -8326,141 +8041,6 @@
     <string name="notification_kind_review_rejected">Rejected</string>
     <string name="notification_kind_review_changes">Changes Required</string>
     <string name="notification_kind_entry_curated">Featured</string>
-
-    <string name="chat_category_all">All</string>
-    <string name="chat_category_recent">Recent</string>
-    <string name="chat_category_favorites">Favorites</string>
-    <string name="add_to_favorites">Add to favorites</string>
-    <string name="remove_from_favorites">Remove from favorites</string>
-    <string name="permission_review_policy_title">Automatic review policy</string>
-    <string name="permission_review_policy_description">Add review rules here to reflect how you like to work; automatic review follows these rules. Policy version: %1$s</string>
-    <string name="permission_review_policy_edit">Edit managed rules</string>
-    <string name="permission_review_policy_collapse">Collapse policy editor</string>
-    <string name="permission_review_policy_managed_hint">These rules are sent to the review model as your custom requirements, and review judges risk and authorization according to your habits. Only add rules you truly intend to allow.</string>
-    <string name="permission_review_policy_placeholder">Example: Any action publishing data publicly must require manual confirmation.</string>
-    <string name="permission_review_recent_denials">Recent denials</string>
-    <string name="permission_review_recent_denials_summary">%1$d denials across %2$d distinct actions</string>
-    <string name="permission_review_recent_denials_open">View statistics and audit details</string>
-    <string name="permission_review_recent_denials_statistics">Denial statistics</string>
-    <string name="permission_review_denial_total">Total denials</string>
-    <string name="permission_review_denial_unique_actions">Distinct actions</string>
-    <string name="permission_review_recent_denials_description">The 10 most recent distinct denied actions are shown below. Select one to open its review Subagent and inspect the full process.</string>
-    <string name="permission_review_recent_denials_empty">This chat has no actions denied by automatic review</string>
-    <string name="permission_review_open_subagent_details">Open review Subagent details</string>
-    <string name="permission_review_subagent_unavailable">The corresponding review Subagent is unavailable</string>
-    <string name="permission_review_allow_exact_once">Authorize re-review of exact action</string>
-    <string name="permission_review_override_recorded">Authorized; waiting for Agent retry</string>
-    <string name="permission_review_override_in_review">Re-review in progress</string>
-    <string name="permission_review_override_consumed">This authorization was used</string>
-    <string name="permission_review_override_expired">Authorization expired; authorize again</string>
-    <string name="permission_review_override_next_step">Authorization is valid for 5 minutes. Return to the parent chat and ask the Agent to retry the exact action; this button does not execute it directly.</string>
-    <string name="permission_review_lifecycle_in_progress">reviewing</string>
-    <string name="permission_review_lifecycle_approved">approved</string>
-    <string name="permission_review_lifecycle_denied">denied</string>
-    <string name="permission_review_lifecycle_timed_out">timed out</string>
-    <string name="permission_review_lifecycle_aborted">aborted</string>
-    <string name="permission_review_lifecycle_failed">review failed</string>
-    <string name="permission_review_batch_lifecycle">Guardian · batch tool %1$d/%2$d · %3$s · %4$s</string>
-    <string name="permission_review_resolved_allow">Later allowed by you or current settings</string>
-    <string name="permission_review_resolved_deny">Later denied by you or current settings</string>
-    <string name="permission_review_tap_for_details">Tap for status, decision, and review conversation</string>
-    <string name="permission_review_detail_title">Guardian review details</string>
-    <string name="permission_review_detail_status">Status: %1$s</string>
-    <string name="permission_review_detail_action">Action: %1$s</string>
-    <string name="permission_review_detail_risk">Risk level: %1$s</string>
-    <string name="permission_review_detail_authorization">User authorization: %1$s</string>
-    <string name="permission_review_detail_rationale">Decision: %1$s</string>
-    <string name="permission_review_detail_subagent_status">Review subagent: %1$s</string>
-    <string name="permission_review_detail_failure">Failure: %1$s</string>
-    <string name="permission_review_value_low">Low</string>
-    <string name="permission_review_value_medium">Medium</string>
-    <string name="permission_review_value_high">High</string>
-    <string name="permission_review_value_critical">Critical</string>
-    <string name="permission_review_value_unknown">Unknown</string>
-    <string name="permission_review_failure_invalid_output">Invalid structured output</string>
-    <string name="permission_review_failure_timed_out">Review timed out</string>
-    <string name="permission_review_failure_reviewer_error">Reviewer model error</string>
-    <string name="permission_review_open_subagent">Open review conversation</string>
-    <string name="permission_review_circuit_title">Guardian stopped this turn</string>
-    <string name="permission_review_circuit_message">Automatic review denied several actions in a row. To protect your data, the remaining tools were not run and this turn was stopped safely.</string>
-    <string name="permission_review_circuit_countdown">Confirm in %1$d s</string>
-    <string name="permission_review_circuit_confirm">I understand</string>
-    <string name="permission_review_circuit_ready">You can now confirm and close this notice</string>
-    <string name="permission_review_circuit_combined_count">%1$d consecutive safety interruptions combined</string>
-    <string name="permission_review_circuit_what_happened_title">What happened</string>
-    <string name="permission_review_circuit_what_happened_body">Guardian denied several tool calls in this turn. The denied calls and the remaining tools were not run, so the turn was stopped.</string>
-    <string name="permission_review_circuit_what_to_do_title">What you should do</string>
-    <string name="permission_review_circuit_what_to_do_body">Review the audit record and check which operation was denied and why. If it is still needed, return to the main chat and clearly state the exact operation, target, and scope before asking the AI to try again. Do not authorize an operation you do not understand.</string>
-    <string name="token_activity_daily">Daily</string>
-    <string name="token_activity_weekly">Weekly</string>
-    <string name="token_activity_cumulative">Cumulative</string>
-    <string name="token_activity_title">Activity</string>
-    <string name="token_activity_current_streak_badge">%1$d-day streak</string>
-    <string name="token_activity_longest_streak_badge">Longest %1$d days</string>
-    <string name="token_activity_chart_tap_hint">Tap the chart to view details</string>
-    <string name="token_activity_total_tokens">Total tokens</string>
-    <string name="token_activity_peak_tokens">Peak tokens</string>
-    <string name="token_activity_current_streak">Current streak</string>
-    <string name="token_activity_longest_streak">Longest streak</string>
-    <string name="token_activity_days">%1$d days</string>
-    <string name="token_activity_day_detail">%1$s used %2$s tokens</string>
-    <string name="token_activity_week_detail">%1$s - %2$s used %3$s tokens</string>
-    <string name="token_activity_cumulative_detail">%2$s tokens through %1$s</string>
-    <string name="token_activity_tap_hint">Tap a cell to view details</string>
-    <string name="token_activity_less">Less</string>
-    <string name="token_activity_more">More</string>
-    <string name="token_stats_detail_cost">Spending breakdown</string>
-    <string name="token_stats_detail_requests">Request breakdown</string>
-    <string name="token_stats_detail_tokens">Token breakdown</string>
-    <string name="token_stats_detail_close">Close</string>
-    <string name="token_stats_detail_open">Tap to view details</string>
-    <string name="markdown_link_not_openable">This link points to a reference inside the document and cannot be opened</string>
-    <string name="openai_file_omitted">File content omitted, current model does not support file processing</string>
-
-    <string name="provider_openai_codex">Codex</string>
-    <string name="onboarding_config_codex_login_required">Sign in to Codex first</string>
-    <string name="codex_login_title">Sign in to Codex</string>
-    <string name="codex_login_starting">Preparing Codex sign-in...</string>
-    <string name="codex_login_waiting">Complete sign-in in your browser</string>
-    <string name="codex_login_action">Sign in with ChatGPT</string>
-    <string name="codex_login_success">Codex sign-in succeeded</string>
-    <string name="codex_login_failed">Codex sign-in failed: %1$s</string>
-    <string name="codex_logout_action">Sign out of Codex</string>
-    <string name="codex_logout_success">Signed out of Codex</string>
-    <string name="codex_auth_title">Codex account</string>
-    <string name="codex_auth_not_logged_in">Sign in with ChatGPT to use Codex subscription access</string>
-    <string name="codex_auth_account">Account: %1$s</string>
-    <string name="codex_endpoint_fixed">The Codex endpoint is fixed by the system</string>
-    <string name="codex_plan">Plan: %1$s</string>
-    <string name="codex_direct_media_processing">Direct image/PDF input</string>
-    <string name="codex_direct_media_processing_desc">Send images and PDFs directly to Codex</string>
-    <string name="codex_quota_five_hour">Last 5 hours</string>
-    <string name="codex_quota_seven_day">Last 7 days</string>
-    <string name="codex_quota_remaining">%1$d%% remaining</string>
-    <string name="codex_quota_no_data">No data</string>
-    <string name="codex_usage_refresh">Refresh Codex usage</string>
-    <string name="codex_usage_unavailable">Usage is temporarily unavailable</string>
-    <string name="codex_reset_after_days">Resets in %1$d days</string>
-    <string name="codex_reset_after_clock">Resets in %1$02d:%2$02d</string>
-    <string name="conversation_media_file_link">&lt;link type=&quot;file&quot; id=&quot;%1$s&quot; filename=&quot;%2$s&quot;&gt;PDF&lt;/link&gt;</string>
-
-    <string name="package_market_origin_title">External Package Source Notice</string>
-    <string name="package_market_origin_message">This package is from the Operit market.\nPackage name: %1$s\nVersion: %2$s\nAuthor: %3$s\nPlease support the original author and be cautious of unauthorized resale.</string>
-    <string name="thinking_config_title">Thinking Configuration</string>
-    <string name="thinking_config_subtitle">Matches thinking parameters in rule order; first match takes effect</string>
-    <string name="thinking_config_rule_order_hint">Rules are matched from top to bottom; the first enabled and matching rule takes effect. Use the arrows on the right side of each rule to adjust the order.</string>
-    <string name="thinking_config_rule_move_up">Move rule up</string>
-    <string name="thinking_config_rule_move_down">Move rule down</string>
-    <string name="token_stats_unit_millions">M</string>
-    <string name="token_stats_unit_billions">B</string>
-    <string name="token_stats_unit_toggle_description">Current token unit is %1$s, click to switch to %2$s</string>
-    <string name="market_manage_submit_revision">Submit new version after modification</string>
-    <string name="market_manage_loading_request_title">Loading Request</string>
-    <string name="market_manage_loading_request_message">Request is being processed, please wait…</string>
-    <string name="market_version_incompatible_title">Cannot Download: Client Version Not Supported</string>
-    <string name="market_version_too_low_message">Current client version %1$s is lower than the minimum required version %2$s for this resource. Please update the client before downloading.</string>
-    <string name="market_version_too_high_message">Current client version %1$s is higher than the maximum supported version %2$s for this resource. Please use a supported client version.</string>
-    <string name="thinking_config_invalid_json">Invalid Thinking Configuration</string>
     <string name="nav_group_disabled_characters">Disabled Characters</string>
     <string name="character_disabled_mark">OFF</string>
     <string name="character_all_disabled_in_group">All characters in this group are disabled, so no one can reply. Please re-enable them in the drawer.</string>

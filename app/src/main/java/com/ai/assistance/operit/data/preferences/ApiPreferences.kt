@@ -1,8 +1,10 @@
 package com.ai.assistance.operit.data.preferences
 
 import android.content.Context
+import com.ai.assistance.operit.util.AppLogger
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
@@ -10,18 +12,11 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
-import com.ai.assistance.operit.data.collects.PricingCurrency
 import com.ai.assistance.operit.data.model.ApiProviderType
-import com.ai.assistance.operit.data.model.BillingMode
 import com.ai.assistance.operit.data.model.FunctionType
 import com.ai.assistance.operit.data.model.ModelParameter
 import com.ai.assistance.operit.data.model.ParameterCategory
 import com.ai.assistance.operit.data.model.ParameterValueType
-import com.ai.assistance.operit.data.stats.ModelPriceSettings
-import com.ai.assistance.operit.data.stats.ReleasedProviderModelKey
-import com.ai.assistance.operit.data.stats.ReleasedProviderModelKeyDecoder
-import com.ai.assistance.operit.plugins.toolpkg.ToolPkgAiProviderRegistry
-import com.ai.assistance.operit.util.AppLogger
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -41,9 +36,6 @@ class ApiPreferences private constructor(private val context: Context) {
     companion object {
         @Volatile
         private var INSTANCE: ApiPreferences? = null
-
-        internal var toolPkgProviderAliasesProvider: (() -> Map<String, String>)? = null
-        internal var configuredProviderIdsProvider: (suspend () -> List<String>)? = null
 
         fun getInstance(context: Context): ApiPreferences {
             return INSTANCE ?: synchronized(this) {
@@ -82,37 +74,67 @@ class ApiPreferences private constructor(private val context: Context) {
             }
         }
 
-        private fun getTokenInputKey(providerModel: String) =
-            longPreferencesKey("token_input_${providerModel.replace(":", "_")}")
-        private fun getTokenCachedInputKey(providerModel: String) =
-            longPreferencesKey("token_cached_input_${providerModel.replace(":", "_")}")
-        private fun getTokenOutputKey(providerModel: String) =
-            longPreferencesKey("token_output_${providerModel.replace(":", "_")}")
-        private fun getModelInputPriceKey(providerModel: String) =
-            floatPreferencesKey("model_input_price_${providerModel.replace(":", "_")}")
-        private fun getModelCachedInputPriceKey(providerModel: String) =
-            floatPreferencesKey("model_cached_input_price_${providerModel.replace(":", "_")}")
-        private fun getModelOutputPriceKey(providerModel: String) =
-            floatPreferencesKey("model_output_price_${providerModel.replace(":", "_")}")
-        private fun getRequestCountKey(providerModel: String) =
-            intPreferencesKey("request_count_${providerModel.replace(":", "_")}")
-        private fun getBillingModeKey(providerModel: String) =
-            stringPreferencesKey("billing_mode_${providerModel.replace(":", "_")}")
-        private fun getPricePerRequestKey(providerModel: String) =
-            floatPreferencesKey("price_per_request_${providerModel.replace(":", "_")}")
-        private val RELEASED_MODEL_PRICE_KEY_PREFIXES = listOf(
-            "model_input_price_", "model_cached_input_price_", "model_output_price_",
-            "billing_mode_", "price_per_request_",
-        )
-        private val USD_TO_CNY_EXCHANGE_RATE = floatPreferencesKey("usd_to_cny_exchange_rate")
+        // 动态生成供应商:模型的Token键
+        fun getTokenInputKey(providerModel: String) =
+                longPreferencesKey("token_input_${providerModel.replace(":", "_")}")
+
+        fun getTokenCachedInputKey(providerModel: String) =
+                longPreferencesKey("token_cached_input_${providerModel.replace(":", "_")}")
+
+        fun getTokenOutputKey(providerModel: String) =
+                longPreferencesKey("token_output_${providerModel.replace(":", "_")}")
+
+        // 模型定价键
+        fun getModelInputPriceKey(providerModel: String) =
+                floatPreferencesKey("model_input_price_${providerModel.replace(":", "_")}")
+
+        fun getModelCachedInputPriceKey(providerModel: String) =
+                floatPreferencesKey("model_cached_input_price_${providerModel.replace(":", "_")}")
+
+        fun getModelOutputPriceKey(providerModel: String) =
+                floatPreferencesKey("model_output_price_${providerModel.replace(":", "_")}")
+
+        // 请求次数统计键
+        fun getRequestCountKey(providerModel: String) =
+                intPreferencesKey("request_count_${providerModel.replace(":", "_")}")
+
+        // 计费方式键
+        fun getBillingModeKey(providerModel: String) =
+                stringPreferencesKey("billing_mode_${providerModel.replace(":", "_")}")
+
+        // 按次计费价格键
+        fun getPricePerRequestKey(providerModel: String) =
+                floatPreferencesKey("price_per_request_${providerModel.replace(":", "_")}")
+
+        private val providerNameCandidates =
+                ApiProviderType.values().map { it.name }.sortedByDescending { it.length }
+
+        private fun decodeProviderModelFromKeySuffix(encoded: String): String {
+                val matchedProvider = providerNameCandidates.firstOrNull {
+                        encoded == it || encoded.startsWith("${it}_")
+                }
+
+                return if (matchedProvider != null) {
+                        if (encoded.length == matchedProvider.length) {
+                                matchedProvider
+                        } else {
+                                "$matchedProvider:${encoded.substring(matchedProvider.length + 1)}"
+                        }
+                } else {
+                        encoded.replace("_", ":")
+                }
+        }
+
+        val USD_TO_CNY_EXCHANGE_RATE = floatPreferencesKey("usd_to_cny_exchange_rate")
 
         val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
         val FEATURE_TOGGLES_JSON = stringPreferencesKey("feature_toggles_json")
         // Default values
         const val DEFAULT_FEATURE_TOGGLE_STATE = false
         const val DEFAULT_KEEP_SCREEN_ON = true
-        // Key for the global thinking-mode toggle
+        // Keys for Thinking Mode and Thinking Guidance
         val ENABLE_THINKING_MODE = booleanPreferencesKey("enable_thinking_mode")
+        val THINKING_QUALITY_LEVEL = intPreferencesKey("thinking_quality_level")
 
         // Key for Memory Auto Update
         val ENABLE_MEMORY_AUTO_UPDATE = booleanPreferencesKey("enable_memory_auto_update")
@@ -147,8 +169,11 @@ class ApiPreferences private constructor(private val context: Context) {
         val MAX_IMAGE_HISTORY_USER_TURNS = intPreferencesKey("max_image_history_user_turns")
         val MAX_MEDIA_HISTORY_USER_TURNS = intPreferencesKey("max_media_history_user_turns")
 
-        // Default value for the global Thinking Mode toggle
+        // Default values for Thinking Mode
         const val DEFAULT_ENABLE_THINKING_MODE = false
+        const val MIN_THINKING_QUALITY_LEVEL = 1
+        const val MAX_THINKING_QUALITY_LEVEL = 5
+        const val DEFAULT_THINKING_QUALITY_LEVEL = 2
 
         // Default value for Memory Auto Update
         const val DEFAULT_ENABLE_MEMORY_AUTO_UPDATE = true
@@ -185,8 +210,6 @@ class ApiPreferences private constructor(private val context: Context) {
         // API 配置默认值
         const val DEFAULT_API_ENDPOINT = "https://api.deepseek.com/v1/chat/completions"
         const val DEFAULT_MODEL_NAME = "deepseek-v4-flash"
-
-        private const val TAG = "ApiPreferences"
     }
 
     @Serializable
@@ -255,6 +278,14 @@ class ApiPreferences private constructor(private val context: Context) {
     val enableThinkingModeFlow: Flow<Boolean> =
         context.apiDataStore.data.map { preferences ->
             preferences[ENABLE_THINKING_MODE] ?: DEFAULT_ENABLE_THINKING_MODE
+        }
+
+    val thinkingQualityLevelFlow: Flow<Int> =
+        context.apiDataStore.data.map { preferences ->
+            (preferences[THINKING_QUALITY_LEVEL] ?: DEFAULT_THINKING_QUALITY_LEVEL).coerceIn(
+                MIN_THINKING_QUALITY_LEVEL,
+                MAX_THINKING_QUALITY_LEVEL
+            )
         }
 
     // Flow for Memory Auto Update
@@ -365,11 +396,28 @@ class ApiPreferences private constructor(private val context: Context) {
         context.apiDataStore.edit { preferences -> preferences[ENABLE_THINKING_MODE] = isEnabled }
     }
 
+    suspend fun saveThinkingQualityLevel(level: Int) {
+        context.apiDataStore.edit { preferences ->
+            preferences[THINKING_QUALITY_LEVEL] = level.coerceIn(
+                MIN_THINKING_QUALITY_LEVEL,
+                MAX_THINKING_QUALITY_LEVEL
+            )
+        }
+    }
+
     suspend fun updateThinkingSettings(
-        enableThinkingMode: Boolean? = null
+        enableThinkingMode: Boolean? = null,
+        thinkingQualityLevel: Int? = null
     ) {
         context.apiDataStore.edit { preferences ->
             enableThinkingMode?.let { preferences[ENABLE_THINKING_MODE] = it }
+
+            thinkingQualityLevel?.let {
+                preferences[THINKING_QUALITY_LEVEL] = it.coerceIn(
+                    MIN_THINKING_QUALITY_LEVEL,
+                    MAX_THINKING_QUALITY_LEVEL
+                )
+            }
         }
     }
 
@@ -471,6 +519,119 @@ class ApiPreferences private constructor(private val context: Context) {
         }
     }
 
+    // Save Disable Status Tags setting
+    /**
+     * 更新指定供应商:模型的token计数
+     * @param providerModel 供应商:模型标识符，格式如"DEEPSEEK:deepseek-chat"
+     * @param inputTokens 新增的输入token
+     * @param outputTokens 新增的输出token
+     * @param cachedInputTokens 新增的缓存命中token
+     */
+    suspend fun updateTokensForProviderModel(
+            providerModel: String,
+            inputTokens: Long,
+            outputTokens: Long,
+            cachedInputTokens: Long = 0L
+    ) {
+        context.apiDataStore.edit { preferences ->
+            val inputKey = getTokenInputKey(providerModel)
+            val cachedInputKey = getTokenCachedInputKey(providerModel)
+            val outputKey = getTokenOutputKey(providerModel)
+
+            val currentInputTokens = readTokenCount(preferences, inputKey.name)
+            val currentCachedInputTokens = readTokenCount(preferences, cachedInputKey.name)
+            val currentOutputTokens = readTokenCount(preferences, outputKey.name)
+
+            removeTokenCountKeys(
+                    preferences,
+                    inputKey.name,
+                    cachedInputKey.name,
+                    outputKey.name
+            )
+            preferences[inputKey] = currentInputTokens + inputTokens
+            preferences[cachedInputKey] = currentCachedInputTokens + cachedInputTokens
+            preferences[outputKey] = currentOutputTokens + outputTokens
+        }
+    }
+
+    /**
+     * 获取指定供应商:模型的输入token数量
+     */
+    suspend fun getInputTokensForProviderModel(providerModel: String): Long {
+        val preferences = context.apiDataStore.data.first()
+        return readTokenCount(preferences, getTokenInputKey(providerModel).name)
+    }
+
+    /**
+     * 获取指定供应商:模型的缓存输入token数量
+     */
+    suspend fun getCachedInputTokensForProviderModel(providerModel: String): Long {
+        val preferences = context.apiDataStore.data.first()
+        return readTokenCount(preferences, getTokenCachedInputKey(providerModel).name)
+    }
+
+    /**
+     * 获取指定供应商:模型的输出token数量
+     */
+    suspend fun getOutputTokensForProviderModel(providerModel: String): Long {
+        val preferences = context.apiDataStore.data.first()
+        return readTokenCount(preferences, getTokenOutputKey(providerModel).name)
+    }
+
+    /**
+     * 获取所有供应商:模型的token统计
+     * @return Map<供应商:模型, Triple<输入tokens, 输出tokens, 缓存tokens>>
+     */
+    suspend fun getAllProviderModelTokens(): Map<String, Triple<Long, Long, Long>> {
+        val preferences = context.apiDataStore.data.first()
+        val result = mutableMapOf<String, Triple<Long, Long, Long>>()
+        
+        // 遍历所有preferences，查找token相关的key
+        preferences.asMap().forEach { (key, value) ->
+            val keyName = key.name
+            if (keyName.startsWith("token_input_")) {
+                val providerModel =
+                        decodeProviderModelFromKeySuffix(keyName.removePrefix("token_input_"))
+                val inputTokens = readTokenCountValue(value)
+                val outputTokens = readTokenCount(preferences, getTokenOutputKey(providerModel).name)
+                val cachedInputTokens =
+                        readTokenCount(preferences, getTokenCachedInputKey(providerModel).name)
+                if (inputTokens > 0L || outputTokens > 0L || cachedInputTokens > 0L) {
+                    result[providerModel] = Triple(inputTokens, outputTokens, cachedInputTokens)
+                }
+            }
+        }
+        
+        return result
+    }
+
+    /**
+     * 获取所有供应商:模型的token统计的Flow
+     * @return Flow<Map<供应商:模型, Triple<输入tokens, 输出tokens, 缓存tokens>>>
+     */
+    val allProviderModelTokensFlow: Flow<Map<String, Triple<Long, Long, Long>>> =
+        context.apiDataStore.data.map { preferences ->
+            val result = mutableMapOf<String, Triple<Long, Long, Long>>()
+            
+            // 遍历所有preferences，查找token相关的key
+            preferences.asMap().forEach { (key, value) ->
+                val keyName = key.name
+                if (keyName.startsWith("token_input_")) {
+                    val providerModel =
+                            decodeProviderModelFromKeySuffix(keyName.removePrefix("token_input_"))
+                    val inputTokens = readTokenCountValue(value)
+                    val outputTokens = readTokenCount(preferences, getTokenOutputKey(providerModel).name)
+                    val cachedInputTokens =
+                            readTokenCount(preferences, getTokenCachedInputKey(providerModel).name)
+                    if (inputTokens > 0L || outputTokens > 0L || cachedInputTokens > 0L) {
+                        result[providerModel] = Triple(inputTokens, outputTokens, cachedInputTokens)
+                    }
+                }
+            }
+            
+            result
+        }
+
     // Save custom system prompt template
     suspend fun saveCustomSystemPromptTemplate(template: String) {
         context.apiDataStore.edit { preferences ->
@@ -485,137 +646,215 @@ class ApiPreferences private constructor(private val context: Context) {
         }
     }
 
-    /** Reads released cumulative statistics once before Room takes ownership. */
-    suspend fun readTokenStatsMigrationSnapshot(): TokenStatsMigrationSnapshot {
-        val preferences = context.apiDataStore.data.first()
-        val counterPrefixes = listOf(
-            "token_input_",
-            "token_cached_input_",
-            "token_output_",
-            "request_count_",
-        )
-        val encodedTotals = linkedSetOf<String>()
-        val encodedPrices = linkedSetOf<String>()
-        preferences.asMap().keys.forEach { key ->
-            counterPrefixes.firstOrNull { key.name.startsWith(it) }?.let { prefix ->
-                encodedTotals += key.name.removePrefix(prefix)
+    // 重置所有供应商:模型的token计数
+    suspend fun resetAllProviderModelTokenCounts() {
+        context.apiDataStore.edit { preferences ->
+            val keysToRemove = mutableListOf<Preferences.Key<*>>()
+            preferences.asMap().forEach { (key, _) ->
+                val keyName = key.name
+                if (keyName.startsWith("token_input_") || keyName.startsWith("token_output_") || keyName.startsWith("token_cached_input_") || keyName.startsWith("request_count_")) {
+                    keysToRemove.add(key)
+                }
             }
-            RELEASED_MODEL_PRICE_KEY_PREFIXES
-                .firstOrNull { key.name.startsWith(it) }
-                ?.let { prefix -> encodedPrices += key.name.removePrefix(prefix) }
-        }
-        val providerAliases = releasedTokenProviderAliases()
-        val skippedLegacyKeys = linkedSetOf<String>()
-
-        // These keys are from the pre-provider/model format. They cannot be assigned
-        // accurately, so skip them while allowing the rest of the migration to finish.
-        fun decodeReleasedKeyOrSkip(encoded: String): ReleasedProviderModelKey? {
-            val decoded = ReleasedProviderModelKeyDecoder.decodeOrNull(encoded, providerAliases)
-            if (decoded == null && skippedLegacyKeys.add(encoded)) {
-                AppLogger.w(
-                    "ApiPreferences",
-                    "Skipping legacy token statistics key without provider/model: $encoded",
-                )
+            keysToRemove.forEach { key ->
+                preferences.remove(key)
             }
-            return decoded
         }
-
-        val totals = encodedTotals.mapNotNull { encoded ->
-            val key = decodeReleasedKeyOrSkip(encoded) ?: return@mapNotNull null
-            val input = readTokenCount(preferences, getTokenInputKey(key.storedProviderModel).name)
-            val cached = readTokenCount(preferences, getTokenCachedInputKey(key.storedProviderModel).name)
-            val output = readTokenCount(preferences, getTokenOutputKey(key.storedProviderModel).name)
-            val requestCount = preferences.asMap().entries
-                .firstOrNull { it.key.name == getRequestCountKey(key.storedProviderModel).name }
-                ?.value
-                ?.let { it as? Number }
-                ?.toLong()
-                ?.coerceAtLeast(0L)
-                ?: 0L
-            ReleasedTokenUsageTotal(key.provider, key.model, input, cached, output, requestCount)
-                .takeIf { input > 0L || cached > 0L || output > 0L || requestCount > 0L }
-        }.groupBy { it.provider to it.model }
-            .map { (_, values) -> values.reduce(ReleasedTokenUsageTotal::plus) }
-        val prices = encodedPrices.mapNotNull { encoded ->
-            val key = decodeReleasedKeyOrSkip(encoded) ?: return@mapNotNull null
-            val billingMode = preferences[getBillingModeKey(key.storedProviderModel)]?.let(BillingMode::valueOf)
-            val inputPrice = positivePrice(preferences[getModelInputPriceKey(key.storedProviderModel)])
-            val cachedInputPrice = positivePrice(preferences[getModelCachedInputPriceKey(key.storedProviderModel)])
-            val outputPrice = positivePrice(preferences[getModelOutputPriceKey(key.storedProviderModel)])
-            val pricePerRequest = positivePrice(preferences[getPricePerRequestKey(key.storedProviderModel)])
-            if (billingMode == null && inputPrice == null && cachedInputPrice == null &&
-                outputPrice == null && pricePerRequest == null) return@mapNotNull null
-            ReleasedTokenPriceSetting(
-                key.provider,
-                key.model,
-                ModelPriceSettings(
-                    billingMode = billingMode,
-                    currency = if (billingMode == BillingMode.COUNT) PricingCurrency.CNY else PricingCurrency.USD,
-                    inputPricePerMillion = inputPrice,
-                    cachedInputPricePerMillion = cachedInputPrice,
-                    outputPricePerMillion = outputPrice,
-                    pricePerRequest = pricePerRequest,
-                )
-            )
-        }.groupBy { it.provider to it.model }.map { (identity, values) ->
-            val settings = values.map(ReleasedTokenPriceSetting::settings).distinct()
-            require(settings.size == 1) { "Conflicting released prices for ${identity.first}:${identity.second}" }
-            ReleasedTokenPriceSetting(identity.first, identity.second, settings.single())
-        }
-        return TokenStatsMigrationSnapshot(
-            totals = totals,
-            prices = prices,
-            usdToCnyRate = preferences[USD_TO_CNY_EXCHANGE_RATE]
-                ?.takeIf { it.isFinite() && it > 0f }
-                ?.toDouble(),
-        )
     }
 
-    /** Removes only old statistics keys after their Room import is complete. */
-    suspend fun clearMigratedTokenStatsData() {
+    // 重置指定供应商:模型的token计数
+    suspend fun resetProviderModelTokenCounts(providerModel: String) {
         context.apiDataStore.edit { preferences ->
-            val prefixes = listOf(
-                "token_input_", "token_cached_input_", "token_output_", "request_count_",
-                "model_input_price_", "model_cached_input_price_", "model_cache_write_price_",
-                "model_output_price_", "model_pricing_currency_", "billing_mode_",
-                "price_per_request_", "stats_",
+            removeTokenCountKeys(
+                    preferences,
+                    getTokenInputKey(providerModel).name,
+                    getTokenCachedInputKey(providerModel).name,
+                    getTokenOutputKey(providerModel).name
             )
-            preferences.asMap().keys
-                .filter { it == USD_TO_CNY_EXCHANGE_RATE || prefixes.any(it.name::startsWith) }
-                .forEach { key ->
-                    @Suppress("UNCHECKED_CAST")
-                    preferences.remove(key as Preferences.Key<Any>)
-                }
+            preferences[getTokenInputKey(providerModel)] = 0L
+            preferences[getTokenCachedInputKey(providerModel)] = 0L
+            preferences[getTokenOutputKey(providerModel)] = 0L
+            preferences[getRequestCountKey(providerModel)] = 0
         }
+    }
+
+    private fun removeTokenCountKeys(preferences: MutablePreferences, vararg keyNames: String) {
+        val names = keyNames.toSet()
+        preferences.asMap().keys
+                .filter { it.name in names }
+                .forEach { preferences.remove(it) }
     }
 
     private fun readTokenCount(preferences: Preferences, keyName: String): Long {
-        val values = preferences.asMap().entries.filter { it.key.name == keyName }.map { it.value }
-        return when (val value = values.firstOrNull { it is Long } ?: values.firstOrNull()) {
+        val values = preferences.asMap().entries
+                .filter { it.key.name == keyName }
+                .map { it.value }
+        val value = values.firstOrNull { it is Long } ?: values.firstOrNull()
+        return readTokenCountValue(value)
+    }
+
+    private fun readTokenCountValue(value: Any?): Long {
+        return when (value) {
             is Long -> value
             is Int -> if (value < 0) value.toLong() and 0xFFFF_FFFFL else value.toLong()
             else -> 0L
         }
     }
 
-    private suspend fun releasedTokenProviderAliases(): Map<String, String> {
-        val registered = toolPkgProviderAliasesProvider?.invoke()
-            ?: ToolPkgAiProviderRegistry.releasedTokenProviderAliases()
-        val configured = configuredProviderIdsProvider?.invoke()
-            ?: ModelConfigManager(context).getAllConfigSummaries().map { it.apiProviderTypeId }
-        return buildMap {
-            configured.map(String::trim).filter(String::isNotEmpty)
-                .filter { ApiProviderType.fromProviderTypeId(it) == null }
-                .forEach { providerId ->
-                    put(providerId, providerId)
-                    put("TOOLPKG_${providerId.lowercase()}", providerId)
-                }
-            putAll(registered)
+    // 获取模型输入价格（每百万tokens的美元价格）
+    suspend fun getModelInputPrice(providerModel: String): Double {
+        val preferences = context.apiDataStore.data.first()
+        return preferences[getModelInputPriceKey(providerModel)]?.toDouble() ?: 0.0
+    }
+
+    // 获取模型缓存输入价格（每百万tokens的美元价格）
+    suspend fun getModelCachedInputPrice(providerModel: String): Double {
+        val preferences = context.apiDataStore.data.first()
+        return preferences[getModelCachedInputPriceKey(providerModel)]?.toDouble() ?: 0.0
+    }
+
+    // 获取模型输出价格（每百万tokens的美元价格）
+    suspend fun getModelOutputPrice(providerModel: String): Double {
+        val preferences = context.apiDataStore.data.first()
+        return preferences[getModelOutputPriceKey(providerModel)]?.toDouble() ?: 0.0
+    }
+
+    // 设置模型输入价格（每百万tokens的美元价格）
+    suspend fun setModelInputPrice(providerModel: String, price: Double) {
+        context.apiDataStore.edit { preferences ->
+            preferences[getModelInputPriceKey(providerModel)] = price.toFloat()
         }
     }
 
-    private fun positivePrice(value: Float?): Double? =
-        value?.toDouble()?.takeIf { it.isFinite() && it > 0.0 }
+    // 设置模型缓存输入价格（每百万tokens的美元价格）
+    suspend fun setModelCachedInputPrice(providerModel: String, price: Double) {
+        context.apiDataStore.edit { preferences ->
+            preferences[getModelCachedInputPriceKey(providerModel)] = price.toFloat()
+        }
+    }
+
+    // 设置模型输出价格（每百万tokens的美元价格）
+    suspend fun setModelOutputPrice(providerModel: String, price: Double) {
+        context.apiDataStore.edit { preferences ->
+            preferences[getModelOutputPriceKey(providerModel)] = price.toFloat()
+        }
+    }
+
+    // ===== Request Count Statistics 请求次数统计相关方法 =====
+
+    /**
+     * 增加指定供应商:模型的请求次数
+     * @param providerModel 供应商:模型标识符，格式如"DEEPSEEK:deepseek-chat"
+     */
+    suspend fun incrementRequestCountForProviderModel(providerModel: String) {
+        context.apiDataStore.edit { preferences ->
+            val countKey = getRequestCountKey(providerModel)
+            val currentCount = preferences[countKey] ?: 0
+            preferences[countKey] = currentCount + 1
+        }
+    }
+
+    /**
+     * 获取指定供应商:模型的请求次数
+     * @param providerModel 供应商:模型标识符
+     * @return 请求次数
+     */
+    suspend fun getRequestCountForProviderModel(providerModel: String): Int {
+        val preferences = context.apiDataStore.data.first()
+        return preferences[getRequestCountKey(providerModel)] ?: 0
+    }
+
+    /**
+     * 获取所有供应商:模型的请求次数统计
+     * @return Map<供应商:模型, 请求次数>
+     */
+    suspend fun getAllProviderModelRequestCounts(): Map<String, Int> {
+        val preferences = context.apiDataStore.data.first()
+        val result = mutableMapOf<String, Int>()
+        
+        // 遍历所有preferences，查找请求次数相关的key
+        preferences.asMap().forEach { (key, value) ->
+            val keyName = key.name
+            if (keyName.startsWith("request_count_")) {
+                val providerModel =
+                        decodeProviderModelFromKeySuffix(keyName.removePrefix("request_count_"))
+                val count = value as? Int ?: 0
+                if (count > 0) {
+                    result[providerModel] = count
+                }
+            }
+        }
+        
+        return result
+    }
+
+    /**
+     * 重置指定供应商:模型的请求次数
+     * @param providerModel 供应商:模型标识符
+     */
+    suspend fun resetProviderModelRequestCount(providerModel: String) {
+        context.apiDataStore.edit { preferences ->
+            preferences[getRequestCountKey(providerModel)] = 0
+        }
+    }
+
+    // ===== Billing Mode 计费方式相关方法 =====
+
+    /**
+     * 获取指定供应商:模型的计费方式
+     * @param providerModel 供应商:模型标识符
+     * @return 计费方式，默认为TOKEN
+     */
+    suspend fun getBillingModeForProviderModel(providerModel: String): com.ai.assistance.operit.data.model.BillingMode {
+        val preferences = context.apiDataStore.data.first()
+        val modeString = preferences[getBillingModeKey(providerModel)]
+        return com.ai.assistance.operit.data.model.BillingMode.fromString(modeString)
+    }
+
+    /**
+     * 设置指定供应商:模型的计费方式
+     * @param providerModel 供应商:模型标识符
+     * @param mode 计费方式
+     */
+    suspend fun setBillingModeForProviderModel(providerModel: String, mode: com.ai.assistance.operit.data.model.BillingMode) {
+        context.apiDataStore.edit { preferences ->
+            preferences[getBillingModeKey(providerModel)] = mode.name
+        }
+    }
+
+    // ===== Price Per Request 按次计费价格相关方法 =====
+
+    /**
+     * 获取指定供应商:模型的按次计费价格
+     * @param providerModel 供应商:模型标识符
+     * @return 每次请求的价格，未设置时返回0.0
+     */
+    suspend fun getPricePerRequestForProviderModel(providerModel: String): Double {
+        val preferences = context.apiDataStore.data.first()
+        return preferences[getPricePerRequestKey(providerModel)]?.toDouble() ?: 0.0
+    }
+
+    /**
+     * 设置指定供应商:模型的按次计费价格（人民币）
+     * @param providerModel 供应商:模型标识符
+     * @param price 每次请求的价格
+     */
+    suspend fun setPricePerRequestForProviderModel(providerModel: String, price: Double) {
+        context.apiDataStore.edit { preferences ->
+            preferences[getPricePerRequestKey(providerModel)] = price.toFloat()
+        }
+    }
+
+    suspend fun getUsdToCnyExchangeRate(): Double {
+        val preferences = context.apiDataStore.data.first()
+        return preferences[USD_TO_CNY_EXCHANGE_RATE]?.toDouble() ?: 7.2
+    }
+
+    suspend fun setUsdToCnyExchangeRate(rate: Double) {
+        context.apiDataStore.edit { preferences ->
+            preferences[USD_TO_CNY_EXCHANGE_RATE] = rate.toFloat()
+        }
+    }
 
     suspend fun saveMaxImageHistoryUserTurns(turns: Int) {
         context.apiDataStore.edit { preferences ->
@@ -646,34 +885,3 @@ class ApiPreferences private constructor(private val context: Context) {
         }
     }
 }
-
-data class TokenStatsMigrationSnapshot(
-    val totals: List<ReleasedTokenUsageTotal>,
-    val prices: List<ReleasedTokenPriceSetting>,
-    val usdToCnyRate: Double?,
-)
-
-data class ReleasedTokenUsageTotal(
-    val provider: String,
-    val model: String,
-    val inputTokens: Long,
-    val cachedInputTokens: Long,
-    val outputTokens: Long,
-    val requestCount: Long,
-) {
-    operator fun plus(other: ReleasedTokenUsageTotal): ReleasedTokenUsageTotal {
-        require(provider == other.provider && model == other.model)
-        return copy(
-            inputTokens = Math.addExact(inputTokens, other.inputTokens),
-            cachedInputTokens = Math.addExact(cachedInputTokens, other.cachedInputTokens),
-            outputTokens = Math.addExact(outputTokens, other.outputTokens),
-            requestCount = Math.addExact(requestCount, other.requestCount),
-        )
-    }
-}
-
-data class ReleasedTokenPriceSetting(
-    val provider: String,
-    val model: String,
-    val settings: ModelPriceSettings,
-)

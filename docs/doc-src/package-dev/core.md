@@ -118,11 +118,11 @@ complete<T>(result: T): void
 
 - `callTool(toolType, toolName, paramsJson)`
 - `callToolAsync(callbackId, toolType, toolName, paramsJson)`
+- `setResult(result)`
+- `setError(error)`
 - `logInfo(message)`
 - `logError(message)`
 - `logDebug(message, data)`
-
-脚本通过 `complete(result)` 返回执行结果。运行时内部的回调方法不属于 `NativeInterface` 公共接口。
 
 ### ToolPkg 注册相关
 

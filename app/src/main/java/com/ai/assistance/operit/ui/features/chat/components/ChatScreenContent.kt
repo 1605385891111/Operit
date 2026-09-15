@@ -4,7 +4,6 @@ import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
-import android.widget.Toast
 import com.ai.assistance.operit.util.AppLogger
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
@@ -33,14 +32,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import com.ai.assistance.operit.data.model.ChatHistory
 import com.ai.assistance.operit.data.model.ChatMessage
@@ -52,14 +47,11 @@ import com.ai.assistance.operit.ui.features.chat.viewmodel.ChatHistoryDisplayMod
 import com.ai.assistance.operit.ui.features.chat.components.style.bubble.BubbleImageStyleConfig
 import com.ai.assistance.operit.ui.features.chat.webview.workspace.WorkspaceBackupManager
 import java.io.File
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
@@ -76,19 +68,12 @@ import androidx.compose.material3.InputChip
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.PopupProperties
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.ai.assistance.operit.R
-import com.ai.assistance.operit.ui.common.markdown.markdownToPlainTextForCopy
 import com.ai.assistance.operit.ui.features.chat.components.MessageEditor
 import com.ai.assistance.operit.ui.main.screens.GestureStateHolder
-import com.ai.assistance.operit.util.LatexMathMlConverter
 import kotlin.math.roundToInt
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 @SuppressLint("UnusedBoxWithConstraintsScope")
 @OptIn(ExperimentalMaterial3Api::class)
@@ -159,10 +144,6 @@ fun ChatScreenContent(
     // Multi-select mode state
     var isMultiSelectMode by remember { mutableStateOf(false) }
     var selectedMessageIndices by remember { mutableStateOf(setOf<Int>()) }
-    var showMultiSelectActionsMenu by remember { mutableStateOf(false) }
-    var isCopyingSelectedMessages by remember { mutableStateOf(false) }
-    var selectedMessagesCopyJob by remember { mutableStateOf<Job?>(null) }
-    val messageOrder = chatHistory.map(ChatMessage::timestamp)
     val selectableMessageIndices = remember(chatHistory) {
         chatHistory.mapIndexedNotNull { index, message ->
             if (message.sender == "user" || message.sender == "ai") index else null
@@ -179,25 +160,12 @@ fun ChatScreenContent(
 
     // Export state
     val context = LocalContext.current
-    val clipboardManager = LocalClipboardManager.current
-    val selectedMessagesCopyScope = rememberCoroutineScope()
     var showExportPlatformDialog by remember { mutableStateOf(false) }
     var showAndroidExportDialog by remember { mutableStateOf(false) }
     var showWindowsExportDialog by remember { mutableStateOf(false) }
     var showExportProgressDialog by remember { mutableStateOf(false) }
     var showExportCompleteDialog by remember { mutableStateOf(false) }
     var exportProgress by remember { mutableStateOf(0f) }
-
-    LaunchedEffect(currentChatId, messageOrder) {
-        selectedMessagesCopyJob?.cancel()
-        selectedMessagesCopyJob = null
-        isCopyingSelectedMessages = false
-        if (isMultiSelectMode) {
-            isMultiSelectMode = false
-            selectedMessageIndices = emptySet()
-        }
-        showMultiSelectActionsMenu = false
-    }
     var exportStatus by remember { mutableStateOf("") }
     var exportSuccess by remember { mutableStateOf(false) }
     var exportFilePath by remember { mutableStateOf<String?>(null) }
@@ -323,11 +291,7 @@ fun ChatScreenContent(
                         onToggleMultiSelectMode = { initialIndex ->
                             isMultiSelectMode = !isMultiSelectMode
                             if (!isMultiSelectMode) {
-                                selectedMessagesCopyJob?.cancel()
-                                selectedMessagesCopyJob = null
-                                isCopyingSelectedMessages = false
                                 selectedMessageIndices = emptySet()
-                                showMultiSelectActionsMenu = false
                             } else if (initialIndex != null) {
                                 // 进入多选模式时，自动选中触发的消息
                                 selectedMessageIndices = setOf(initialIndex)
@@ -444,11 +408,7 @@ fun ChatScreenContent(
                         onToggleMultiSelectMode = { initialIndex ->
                             isMultiSelectMode = !isMultiSelectMode
                             if (!isMultiSelectMode) {
-                                selectedMessagesCopyJob?.cancel()
-                                selectedMessagesCopyJob = null
-                                isCopyingSelectedMessages = false
                                 selectedMessageIndices = emptySet()
-                                showMultiSelectActionsMenu = false
                             } else if (initialIndex != null) {
                                 // 进入多选模式时，自动选中触发的消息
                                 selectedMessageIndices = setOf(initialIndex)
@@ -493,24 +453,20 @@ fun ChatScreenContent(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // 显示选中数量
                     Row(
-                        modifier = Modifier.weight(1f),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        // 取消按钮移到左侧
                         IconButton(
                             onClick = {
-                                selectedMessagesCopyJob?.cancel()
-                                selectedMessagesCopyJob = null
-                                isCopyingSelectedMessages = false
                                 isMultiSelectMode = false
                                 selectedMessageIndices = emptySet()
-                                showMultiSelectActionsMenu = false
                             },
                             modifier = Modifier.size(32.dp)
                         ) {
@@ -530,15 +486,11 @@ fun ChatScreenContent(
                             },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface,
-                            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
                         )
                     }
 
                     Row(
-                        modifier = Modifier.wrapContentWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -546,7 +498,7 @@ fun ChatScreenContent(
                             selectableMessageIndices.isNotEmpty() &&
                                     selectableMessageIndices.all { selectedMessageIndices.contains(it) }
 
-                        IconButton(
+                        TextButton(
                             onClick = {
                                 selectedMessageIndices =
                                         if (allSelectableSelected) {
@@ -556,181 +508,96 @@ fun ChatScreenContent(
                                         }
                             },
                             enabled = selectableMessageIndices.isNotEmpty(),
-                            modifier = Modifier.size(32.dp)
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.SelectAll,
                                 contentDescription = stringResource(
-                                    if (allSelectableSelected) R.string.clear_selection else R.string.select_all_messages
+                                        if (allSelectableSelected) R.string.clear_selection else R.string.select_all_messages
                                 ),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(16.dp)
                             )
                         }
 
-                        Box {
-                            IconButton(
-                                onClick = { showMultiSelectActionsMenu = true },
-                                enabled = selectedMessageIndices.isNotEmpty(),
-                                modifier = Modifier.size(32.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.MoreVert,
-                                    contentDescription = stringResource(R.string.multi_select_actions),
-                                    modifier = Modifier.size(18.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-
-                            DropdownMenu(
-                                expanded = showMultiSelectActionsMenu,
-                                onDismissRequest = { showMultiSelectActionsMenu = false },
-                                modifier = Modifier
-                                    .width(180.dp)
-                                    .background(
-                                        MaterialTheme.colorScheme.surface,
-                                        shape = RoundedCornerShape(6.dp)
-                                    ),
-                                properties = PopupProperties(
-                                    focusable = true,
-                                    dismissOnBackPress = true,
-                                    dismissOnClickOutside = true
-                                )
-                            ) {
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            stringResource(R.string.copy_text),
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontSize = 13.sp
-                                        )
-                                    },
-                                    leadingIcon = {
-                                        Icon(
-                                            Icons.Default.ContentCopy,
-                                            contentDescription = stringResource(R.string.copy_text),
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                    },
-                                    enabled = !isCopyingSelectedMessages,
-                                    modifier = Modifier.height(36.dp),
-                                    onClick = {
-                                        showMultiSelectActionsMenu = false
-                                        val messagesToCopy = selectedMessageIndices
-                                            .sorted()
-                                            .mapNotNull(chatHistory::getOrNull)
-                                        isCopyingSelectedMessages = true
-                                        selectedMessagesCopyJob = selectedMessagesCopyScope.launch {
-                                            val currentCopyJob = coroutineContext[Job]
-                                            try {
-                                                val copiedText = withContext(Dispatchers.Default) {
-                                                    buildSelectedMessagesPlainText(messages = messagesToCopy) { markdown ->
-                                                        markdownToPlainTextForCopy(markdown) { formulas ->
-                                                            LatexMathMlConverter.convertAll(context, formulas)
-                                                        }
-                                                    }
-                                                }
-                                                if (copiedText.isNotEmpty()) {
-                                                    clipboardManager.setText(AnnotatedString(copiedText))
-                                                    Toast.makeText(context, context.getString(R.string.message_copied_to_clipboard), Toast.LENGTH_SHORT).show()
-                                                    isMultiSelectMode = false
-                                                    selectedMessageIndices = emptySet()
-                                                } else {
-                                                    Toast.makeText(context, context.getString(R.string.no_text_to_copy), Toast.LENGTH_SHORT).show()
-                                                }
-                                            } catch (cancellation: CancellationException) {
-                                                throw cancellation
-                                            } catch (error: Exception) {
-                                                AppLogger.e("ChatScreenContent", "Failed to copy selected messages", error)
-                                                Toast.makeText(context, context.getString(R.string.dialog_copy_failed, error.localizedMessage ?: error.javaClass.simpleName), Toast.LENGTH_SHORT).show()
-                                            } finally {
-                                                if (selectedMessagesCopyJob === currentCopyJob) {
-                                                    selectedMessagesCopyJob = null
-                                                    isCopyingSelectedMessages = false
-                                                }
-                                            }
-                                        }
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            stringResource(R.string.add_selected_to_memory),
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontSize = 13.sp
-                                        )
-                                    },
-                                    leadingIcon = {
-                                        Icon(
-                                            Icons.Default.CheckCircle,
-                                            contentDescription = stringResource(R.string.add_selected_to_memory),
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                    },
-                                    enabled = selectedMessageIndices.isNotEmpty(),
-                                    modifier = Modifier.height(36.dp),
-                                    onClick = {
-                                        showMultiSelectActionsMenu = false
-                                        val selectedMessages = selectedMessageIndices
+                        FilledIconButton(
+                            onClick = {
+                                if (selectedMessageIndices.isNotEmpty()) {
+                                    val selectedMessages =
+                                        selectedMessageIndices
                                             .mapNotNull { index -> chatHistory.getOrNull(index) }
                                             .sortedBy { it.timestamp }
-                                        actualViewModel.enqueueSelectedMessagesForMemoryAutoSave(selectedMessages)
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            stringResource(R.string.share_selected),
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontSize = 13.sp
-                                        )
-                                    },
-                                    leadingIcon = {
-                                        Icon(
-                                            Icons.Default.Share,
-                                            contentDescription = stringResource(R.string.share_selected),
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                    },
-                                    enabled = selectedMessageIndices.isNotEmpty() && !isGeneratingImage,
-                                    modifier = Modifier.height(36.dp),
-                                    onClick = {
-                                        showMultiSelectActionsMenu = false
-                                        sharePreviewUri = null
-                                        sharePreviewThinkingExpanded = false
-                                        sharePreviewExpandThinkToolsGroups = false
-                                        sharePreviewIncludeBackground = hasBackgroundImage
-                                        sharePreviewBorderWidth = 1.5f
-                                        showSharePreviewDialog = true
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            stringResource(R.string.delete_selected),
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontSize = 13.sp
-                                        )
-                                    },
-                                    leadingIcon = {
-                                        Icon(
-                                            Icons.Default.Delete,
-                                            contentDescription = stringResource(R.string.delete_selected),
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                    },
-                                    enabled = selectedMessageIndices.isNotEmpty(),
-                                    modifier = Modifier.height(36.dp),
-                                    onClick = {
-                                        showMultiSelectActionsMenu = false
-                                        showDeleteSelectedConfirmDialog = true
-                                    }
-                                )
-                            }
+                                    actualViewModel.enqueueSelectedMessagesForMemoryAutoSave(
+                                        selectedMessages
+                                    )
+                                }
+                            },
+                            enabled = selectedMessageIndices.isNotEmpty(),
+                            modifier = Modifier.size(32.dp),
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                                disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                            )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = stringResource(R.string.add_selected_to_memory),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+
+                        // 分享按钮
+                        FilledIconButton(
+                            onClick = {
+                                if (selectedMessageIndices.isNotEmpty() && !isGeneratingImage) {
+                                    // 预览参数仅对本次截图生效，不污染正常聊天展示状态
+                                    sharePreviewUri = null
+                                    sharePreviewThinkingExpanded = false
+                                    sharePreviewExpandThinkToolsGroups = false
+                                    sharePreviewIncludeBackground = hasBackgroundImage
+                                    sharePreviewBorderWidth = 1.5f
+                                    showSharePreviewDialog = true
+                                }
+                            },
+                            enabled = selectedMessageIndices.isNotEmpty() && !isGeneratingImage,
+                            modifier = Modifier.size(32.dp),
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                            )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Share,
+                                contentDescription = stringResource(R.string.share_selected),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+
+                        // 删除按钮
+                        FilledIconButton(
+                            onClick = {
+                                if (selectedMessageIndices.isNotEmpty()) {
+                                    showDeleteSelectedConfirmDialog = true
+                                }
+                            },
+                            enabled = selectedMessageIndices.isNotEmpty(),
+                            modifier = Modifier.size(32.dp),
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = MaterialTheme.colorScheme.errorContainer,
+                                contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                                disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                            )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = stringResource(R.string.delete_selected),
+                                modifier = Modifier.size(16.dp)
+                            )
                         }
                     }
                 }
@@ -860,15 +727,7 @@ fun ChatScreenContent(
             AlertDialog(
                 onDismissRequest = { showDeleteSelectedConfirmDialog = false },
                 title = { Text(stringResource(R.string.confirm_delete)) },
-                text = {
-                    Text(
-                        pluralStringResource(
-                            R.plurals.chat_delete_selected_messages_confirm,
-                            selectedMessageIndices.size,
-                            selectedMessageIndices.size,
-                        )
-                    )
-                },
+                text = { Text("Delete ${selectedMessageIndices.size} selected messages? This cannot be undone.") },
                 confirmButton = {
                     TextButton(
                         onClick = {

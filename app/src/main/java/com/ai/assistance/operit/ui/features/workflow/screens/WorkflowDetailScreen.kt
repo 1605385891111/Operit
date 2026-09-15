@@ -129,7 +129,6 @@ fun WorkflowDetailScreen(
     var isFabMenuExpanded by remember { mutableStateOf(false) }
     var showExecutionLogDialog by remember { mutableStateOf(false) }
     var showExecutionLogsForNodeId by remember { mutableStateOf<String?>(null) }
-    val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(workflowId) {
         viewModel.loadWorkflow(workflowId)
@@ -142,16 +141,6 @@ fun WorkflowDetailScreen(
     val isWorkflowRunning = runningWorkflowIds.contains(workflowId)
 
     CustomScaffold(
-        snackbarHost = {
-            SnackbarHost(snackbarHostState) { data ->
-                Snackbar(
-                    modifier = Modifier.padding(16.dp),
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    snackbarData = data
-                )
-            }
-        },
         floatingActionButton = {
             if (workflow != null) {
                 Column(
@@ -418,11 +407,16 @@ fun WorkflowDetailScreen(
 
             // 错误提示
             viewModel.error?.let { error ->
-                LaunchedEffect(error) {
-                    snackbarHostState.currentSnackbarData?.dismiss()
-                    snackbarHostState.showSnackbar(error)
-                    viewModel.clearError()
-                }
+                AlertDialog(
+                    onDismissRequest = { viewModel.clearError() },
+                    title = { Text(stringResource(R.string.error_title)) },
+                    text = { Text(error) },
+                    confirmButton = {
+                        TextButton(onClick = { viewModel.clearError() }) {
+                            Text(stringResource(R.string.confirm))
+                        }
+                    }
+                )
             }
 
             // 添加节点对话框

@@ -28,7 +28,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,7 +38,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.ai.assistance.operit.R
-import kotlin.math.roundToInt
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -136,10 +134,6 @@ fun DataManagementCard(
     totalChatCount: Int,
     operationState: ChatHistoryOperation,
     operationMessage: String,
-    isLongTextExport: Boolean,
-    longTextExportProgress: Float,
-    longTextExportProcessedCharacters: Long,
-    longTextExportTotalCharacters: Long,
     onExport: () -> Unit,
     onImport: () -> Unit,
     onDelete: () -> Unit
@@ -193,15 +187,7 @@ fun DataManagementCard(
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     when (operationState) {
                         ChatHistoryOperation.EXPORTING ->
-                            if (isLongTextExport) {
-                                TextExportProgressView(
-                                    progress = longTextExportProgress,
-                                    processedCharacters = longTextExportProcessedCharacters,
-                                    totalCharacters = longTextExportTotalCharacters,
-                                )
-                            } else {
-                                OperationProgressView(message = stringResource(R.string.backup_exporting, chatTitle))
-                            }
+                            OperationProgressView(message = stringResource(R.string.backup_exporting, chatTitle))
 
                         ChatHistoryOperation.IMPORTING ->
                             OperationProgressView(message = stringResource(R.string.backup_importing, chatTitle))
@@ -416,8 +402,7 @@ fun ManagementButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     isDestructive: Boolean = false,
-    isWarning: Boolean = false,
-    enabled: Boolean = true
+    isWarning: Boolean = false
 ) {
     val colors = if (isDestructive) {
         ButtonDefaults.filledTonalButtonColors(
@@ -437,7 +422,6 @@ fun ManagementButton(
         onClick = onClick,
         modifier = modifier,
         colors = colors,
-        enabled = enabled,
         shape = RoundedCornerShape(14.dp)
     ) {
         Icon(
@@ -505,35 +489,6 @@ fun OperationProgressView(message: String) {
         Spacer(modifier = Modifier.width(16.dp))
         Text(
             text = message,
-            style = MaterialTheme.typography.bodyLarge,
-        )
-    }
-}
-
-@Composable
-private fun TextExportProgressView(
-    progress: Float,
-    processedCharacters: Long,
-    totalCharacters: Long,
-) {
-    val percentage = (progress.coerceIn(0f, 1f) * 100).roundToInt()
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        LinearProgressIndicator(
-            progress = { progress.coerceIn(0f, 1f) },
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Text(
-            text = stringResource(
-                R.string.backup_text_export_progress,
-                percentage,
-                processedCharacters,
-                totalCharacters,
-            ),
             style = MaterialTheme.typography.bodyLarge,
         )
     }

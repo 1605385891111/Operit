@@ -3,7 +3,6 @@ package com.ai.assistance.operit.core.tools.defaultTool.standard
 import android.content.Context
 import com.ai.assistance.operit.api.chat.EnhancedAIService
 import com.ai.assistance.operit.api.chat.llmprovider.ModelConfigConnectionTester
-import com.ai.assistance.operit.api.chat.llmprovider.ModelConnectionTestOutcome
 import com.ai.assistance.operit.api.speech.SpeechServiceFactory
 import com.ai.assistance.operit.api.voice.HttpTtsResponsePipelineStep
 import com.ai.assistance.operit.api.voice.TtsException
@@ -63,7 +62,7 @@ import com.ai.assistance.operit.data.model.getValidModelIndex
 import com.ai.assistance.operit.data.preferences.FunctionalConfigManager
 import com.ai.assistance.operit.data.preferences.FunctionConfigMapping
 import com.ai.assistance.operit.data.preferences.ModelConfigManager
-import com.ai.assistance.operit.data.preferences.SpeechServiceProfilesPreferences
+import com.ai.assistance.operit.data.preferences.SpeechServicesPreferences
 import com.ai.assistance.operit.ui.features.startup.screens.PluginLoadingStateRegistry
 import com.ai.assistance.operit.ui.features.startup.screens.PluginStatus
 import kotlinx.coroutines.delay
@@ -437,18 +436,16 @@ class StandardSoftwareSettingsModifyTools(private val context: Context) {
 
     suspend fun getSpeechServicesConfig(tool: AITool): ToolResult {
         return try {
-            val profilePrefs = SpeechServiceProfilesPreferences(context)
-            val ttsProfile = profilePrefs.getCurrentTtsProfile()
-            val sttProfile = profilePrefs.getCurrentSttProfile()
-            val ttsServiceType = ttsProfile.serviceType
-            val ttsHttpConfig = ttsProfile.httpConfig
-            val ttsVitsConfig = ttsProfile.vitsConfig
-            val ttsCleanerRegexs = ttsProfile.cleanerRegexs
-            val ttsSpeechRate = ttsProfile.speechRate
-            val ttsPitch = ttsProfile.pitch
+            val prefs = SpeechServicesPreferences(context)
+            val ttsServiceType = prefs.ttsServiceTypeFlow.first()
+            val ttsHttpConfig = prefs.ttsHttpConfigFlow.first()
+            val ttsVitsConfig = prefs.ttsVitsPackageConfigFlow.first()
+            val ttsCleanerRegexs = prefs.ttsCleanerRegexsFlow.first()
+            val ttsSpeechRate = prefs.ttsSpeechRateFlow.first()
+            val ttsPitch = prefs.ttsPitchFlow.first()
 
-            val sttServiceType = sttProfile.serviceType
-            val sttHttpConfig = sttProfile.httpConfig
+            val sttServiceType = prefs.sttServiceTypeFlow.first()
+            val sttHttpConfig = prefs.sttHttpConfigFlow.first()
 
             ToolResult(
                 toolName = tool.name,
@@ -501,18 +498,17 @@ class StandardSoftwareSettingsModifyTools(private val context: Context) {
 
     suspend fun setSpeechServicesConfig(tool: AITool): ToolResult {
         return try {
-            val profilePrefs = SpeechServiceProfilesPreferences(context)
-            val currentTtsProfile = profilePrefs.getCurrentTtsProfile()
-            val currentSttProfile = profilePrefs.getCurrentSttProfile()
-            val currentTtsServiceType = currentTtsProfile.serviceType
-            val currentTtsHttpConfig = currentTtsProfile.httpConfig
-            val currentTtsVitsConfig = currentTtsProfile.vitsConfig
-            val currentTtsCleanerRegexs = currentTtsProfile.cleanerRegexs
-            val currentTtsSpeechRate = currentTtsProfile.speechRate
-            val currentTtsPitch = currentTtsProfile.pitch
+            val prefs = SpeechServicesPreferences(context)
 
-            val currentSttServiceType = currentSttProfile.serviceType
-            val currentSttHttpConfig = currentSttProfile.httpConfig
+            val currentTtsServiceType = prefs.ttsServiceTypeFlow.first()
+            val currentTtsHttpConfig = prefs.ttsHttpConfigFlow.first()
+            val currentTtsVitsConfig = prefs.ttsVitsPackageConfigFlow.first()
+            val currentTtsCleanerRegexs = prefs.ttsCleanerRegexsFlow.first()
+            val currentTtsSpeechRate = prefs.ttsSpeechRateFlow.first()
+            val currentTtsPitch = prefs.ttsPitchFlow.first()
+
+            val currentSttServiceType = prefs.sttServiceTypeFlow.first()
+            val currentSttHttpConfig = prefs.sttHttpConfigFlow.first()
 
             val hasField = { name: String -> tool.parameters.any { it.name == name } }
 
@@ -767,21 +763,17 @@ class StandardSoftwareSettingsModifyTools(private val context: Context) {
                 )
             }
 
-            profilePrefs.updateTtsProfile(
-                currentTtsProfile.copy(
-                    serviceType = ttsServiceType,
-                    httpConfig = ttsHttpConfig,
-                    vitsConfig = ttsVitsConfig,
-                    cleanerRegexs = ttsCleanerRegexs,
-                    speechRate = ttsSpeechRate,
-                    pitch = ttsPitch,
-                ),
+            prefs.saveTtsSettings(
+                serviceType = ttsServiceType,
+                httpConfig = ttsHttpConfig,
+                vitsConfig = ttsVitsConfig,
+                cleanerRegexs = ttsCleanerRegexs,
+                speechRate = ttsSpeechRate,
+                pitch = ttsPitch
             )
-            profilePrefs.updateSttProfile(
-                currentSttProfile.copy(
-                    serviceType = sttServiceType,
-                    httpConfig = sttHttpConfig,
-                ),
+            prefs.saveSttSettings(
+                serviceType = sttServiceType,
+                httpConfig = sttHttpConfig
             )
 
             VoiceServiceFactory.resetInstance()
@@ -828,7 +820,7 @@ class StandardSoftwareSettingsModifyTools(private val context: Context) {
             )
         }
 
-        val profilePrefs = SpeechServiceProfilesPreferences(context)
+        val prefs = SpeechServicesPreferences(context)
         var ttsServiceTypeName = ""
         var providerClass = ""
         var initialized = false
@@ -837,8 +829,7 @@ class StandardSoftwareSettingsModifyTools(private val context: Context) {
         var pitch = 0f
 
         return try {
-            val ttsProfile = profilePrefs.getCurrentTtsProfile()
-            val ttsServiceType = ttsProfile.serviceType
+            val ttsServiceType = prefs.ttsServiceTypeFlow.first()
             ttsServiceTypeName = ttsServiceType.name
             val hasSpeechRateOverride = tool.parameters.any { it.name == "speech_rate" }
             val hasPitchOverride = tool.parameters.any { it.name == "pitch" }
@@ -852,14 +843,14 @@ class StandardSoftwareSettingsModifyTools(private val context: Context) {
                     getParameterValue(tool, "speech_rate")?.trim()?.toFloatOrNull()
                         ?: throw IllegalArgumentException("Invalid number parameter: speech_rate")
                 } else {
-                    ttsProfile.speechRate
+                    prefs.ttsSpeechRateFlow.first()
                 }
             pitch =
                 if (hasPitchOverride) {
                     getParameterValue(tool, "pitch")?.trim()?.toFloatOrNull()
                         ?: throw IllegalArgumentException("Invalid number parameter: pitch")
                 } else {
-                    ttsProfile.pitch
+                    prefs.ttsPitchFlow.first()
                 }
 
             VoiceServiceFactory.resetInstance()
@@ -955,6 +946,8 @@ class StandardSoftwareSettingsModifyTools(private val context: Context) {
         return try {
             val modelConfigManager = ModelConfigManager(context)
             val functionalConfigManager = FunctionalConfigManager(context)
+            modelConfigManager.initializeIfNeeded()
+            functionalConfigManager.initializeIfNeeded()
 
             val configIds = modelConfigManager.configListFlow.first()
             val mappingWithIndex = functionalConfigManager.functionConfigMappingWithIndexFlow.first()
@@ -1007,6 +1000,7 @@ class StandardSoftwareSettingsModifyTools(private val context: Context) {
     suspend fun createModelConfig(tool: AITool): ToolResult {
         return try {
             val modelConfigManager = ModelConfigManager(context)
+            modelConfigManager.initializeIfNeeded()
 
             val name =
                 getParameterValue(tool, "name")?.trim().takeUnless { it.isNullOrBlank() }
@@ -1064,6 +1058,8 @@ class StandardSoftwareSettingsModifyTools(private val context: Context) {
         return try {
             val modelConfigManager = ModelConfigManager(context)
             val functionalConfigManager = FunctionalConfigManager(context)
+            modelConfigManager.initializeIfNeeded()
+            functionalConfigManager.initializeIfNeeded()
 
             val current =
                 modelConfigManager.getModelConfig(configId)
@@ -1142,6 +1138,9 @@ class StandardSoftwareSettingsModifyTools(private val context: Context) {
 
         return try {
             val modelConfigManager = ModelConfigManager(context)
+            val functionalConfigManager = FunctionalConfigManager(context)
+            modelConfigManager.initializeIfNeeded()
+            functionalConfigManager.initializeIfNeeded()
 
             val configList = modelConfigManager.configListFlow.first()
             if (!configList.contains(configId)) {
@@ -1153,7 +1152,26 @@ class StandardSoftwareSettingsModifyTools(private val context: Context) {
                 )
             }
 
-            val affectedFunctions = modelConfigManager.deleteConfig(configId)
+            val mappingWithIndex = functionalConfigManager.functionConfigMappingWithIndexFlow.first()
+            val updatedMapping = mappingWithIndex.toMutableMap()
+            val affectedFunctions = mutableListOf<FunctionType>()
+
+            mappingWithIndex.forEach { (functionType, mapping) ->
+                if (mapping.configId == configId) {
+                    updatedMapping[functionType] =
+                        FunctionConfigMapping(
+                            configId = FunctionalConfigManager.DEFAULT_CONFIG_ID,
+                            modelIndex = 0
+                        )
+                    affectedFunctions.add(functionType)
+                }
+            }
+
+            if (affectedFunctions.isNotEmpty()) {
+                functionalConfigManager.saveFunctionConfigMappingWithIndex(updatedMapping)
+            }
+
+            modelConfigManager.deleteConfig(configId)
 
             affectedFunctions
                 .sortedBy { it.name }
@@ -1185,6 +1203,7 @@ class StandardSoftwareSettingsModifyTools(private val context: Context) {
     suspend fun listFunctionModelConfigs(tool: AITool): ToolResult {
         return try {
             val functionalConfigManager = FunctionalConfigManager(context)
+            functionalConfigManager.initializeIfNeeded()
 
             val mappingWithIndex = functionalConfigManager.functionConfigMappingWithIndexFlow.first()
 
@@ -1244,6 +1263,8 @@ class StandardSoftwareSettingsModifyTools(private val context: Context) {
 
             val modelConfigManager = ModelConfigManager(context)
             val functionalConfigManager = FunctionalConfigManager(context)
+            modelConfigManager.initializeIfNeeded()
+            functionalConfigManager.initializeIfNeeded()
 
             val mappingWithIndex = functionalConfigManager.functionConfigMappingWithIndexFlow.first()
             val mapping =
@@ -1321,6 +1342,8 @@ class StandardSoftwareSettingsModifyTools(private val context: Context) {
 
             val modelConfigManager = ModelConfigManager(context)
             val functionalConfigManager = FunctionalConfigManager(context)
+            modelConfigManager.initializeIfNeeded()
+            functionalConfigManager.initializeIfNeeded()
 
             val config =
                 modelConfigManager.getModelConfig(configId)
@@ -1381,6 +1404,7 @@ class StandardSoftwareSettingsModifyTools(private val context: Context) {
             val requestedModelIndex =
                 getOptionalIntParameter(tool, "model_index")?.coerceAtLeast(0) ?: 0
             val modelConfigManager = ModelConfigManager(context)
+            modelConfigManager.initializeIfNeeded()
 
             val config =
                 modelConfigManager.getModelConfig(configId)
@@ -1404,7 +1428,6 @@ class StandardSoftwareSettingsModifyTools(private val context: Context) {
                     ModelConfigConnectionTestItemResultData(
                         type = item.type.name.lowercase(),
                         success = item.success,
-                        outcome = item.outcome.name.lowercase(),
                         error = item.error
                     )
                 }
@@ -1421,11 +1444,9 @@ class StandardSoftwareSettingsModifyTools(private val context: Context) {
                         actualModelIndex = report.actualModelIndex,
                         testedModelName = report.testedModelName,
                         success = report.success,
-                        verified = report.verified,
                         totalTests = report.items.size,
                         passedTests = report.items.count { it.success },
-                        unverifiedTests = report.items.count { it.outcome == ModelConnectionTestOutcome.UNVERIFIED },
-                        failedTests = report.items.count { it.outcome == ModelConnectionTestOutcome.FAILED },
+                        failedTests = report.items.count { !it.success },
                         tests = testItems
                     ),
                 error = if (report.success) null else "One or more connection tests failed"

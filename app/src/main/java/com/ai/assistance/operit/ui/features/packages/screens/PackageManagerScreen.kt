@@ -726,7 +726,7 @@ fun PackageManagerScreen(
                         )
                         Spacer(Modifier.width(6.dp))
                         Text(
-                            context.getString(R.string.package_tab_skills),
+                            context.getString(R.string.skills),
                             style = MaterialTheme.typography.bodySmall,
                             softWrap = false,
                             color = if (selectedTab == PackageTab.SKILLS)
@@ -786,7 +786,7 @@ fun PackageManagerScreen(
                                 selectedPackage = packageName
                                 showDetails = true
                             },
-                             onTogglePlugin = { details, isChecked ->
+                            onTogglePlugin = { details, isChecked ->
                                 val currentImported =
                                     visibleImportedPackages.value.toMutableList()
                                 if (isChecked) {
@@ -831,15 +831,11 @@ fun PackageManagerScreen(
                                                 }
                                         )
                                     }
-                                 }
-                             },
-                             loadPluginLogo = { packageName ->
-                                 packageManager.readToolPkgLogoBytes(packageName)
-                             },
-                             pluginOrder = pluginOrder,
+                                }
+                            },
+                            pluginOrder = pluginOrder,
                             onSavePluginOrder = { newOrder ->
                                 pluginOrder = newOrder
-                                packageManager.updateToolPkgPluginOrder(newOrder)
                                 scope.launch {
                                     apiPreferences.savePluginOrder(newOrder)
                                 }
@@ -1161,3 +1157,4 @@ fun PackageManagerScreen(
         }
     }
 }
+

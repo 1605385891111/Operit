@@ -61,6 +61,7 @@ import com.google.android.exoplayer2.ExoPlayer
 import com.google.android.exoplayer2.ui.AspectRatioFrameLayout
 import com.google.android.exoplayer2.ui.StyledPlayerView
 import kotlinx.coroutines.flow.collect
+import kotlin.math.abs
 
 private fun calculateLuminance(color: Color): Float {
     return 0.299f * color.red + 0.587f * color.green + 0.114f * color.blue
@@ -73,7 +74,7 @@ internal fun ThemeSettingsBackgroundSection(
     editorSession: ThemeEditorSession,
     exoPlayer: ExoPlayer,
     launchImageCrop: (Uri) -> Unit,
-    mediaPickerLauncher: ManagedActivityResultLauncher<Array<String>, Uri?>,
+    mediaPickerLauncher: ManagedActivityResultLauncher<String, Uri?>,
     scrollState: ScrollState,
     useBackgroundImageInput: Boolean,
     onUseBackgroundImageInputChange: (Boolean) -> Unit,
@@ -390,9 +391,9 @@ internal fun ThemeSettingsBackgroundSection(
                 Button(
                     onClick = {
                         if (backgroundMediaTypeInput == UserPreferencesManager.MEDIA_TYPE_VIDEO) {
-                            mediaPickerLauncher.launch(arrayOf("video/*"))
+                            mediaPickerLauncher.launch("video/*")
                         } else {
-                            mediaPickerLauncher.launch(arrayOf("image/*"))
+                            mediaPickerLauncher.launch("image/*")
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -418,6 +419,7 @@ internal fun ThemeSettingsBackgroundSection(
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
 
+                var lastSavedOpacity by remember { mutableStateOf(backgroundImageOpacityInput) }
                 var isDragging by remember { mutableStateOf(false) }
                 val interactionSource = remember { MutableInteractionSource() }
 
@@ -438,25 +440,20 @@ internal fun ThemeSettingsBackgroundSection(
                     }
                 }
 
-                // A tap makes the slider emit onValueChange and onValueChangeFinished within
-                // the same frame, so the hoisted state cannot have been recomposed yet when
-                // the value is persisted. Keep the value the slider itself just emitted.
-                var pendingOpacity by remember { mutableStateOf<Float?>(null) }
+                val latestOpacity by rememberUpdatedState(backgroundImageOpacityInput)
                 val latestOpacityChange by rememberUpdatedState(onBackgroundImageOpacityInputChange)
 
                 val updateOpacity = remember {
-                    { value: Float ->
-                        pendingOpacity = value
-                        latestOpacityChange(value)
-                    }
+                    { value: Float -> latestOpacityChange(value) }
                 }
 
                 val onValueChangeFinished = remember {
                     {
-                        pendingOpacity?.let {
-                            editorSession.setFloat("background_image_opacity", it)
+                        val newOpacity = latestOpacity
+                        if (abs(lastSavedOpacity - newOpacity) > 0.01f) {
+                            editorSession.setFloat("background_image_opacity", newOpacity)
+                            lastSavedOpacity = newOpacity
                         }
-                        pendingOpacity = null
                     }
                 }
 
@@ -515,24 +512,25 @@ internal fun ThemeSettingsBackgroundSection(
                         modifier = Modifier.padding(top = 8.dp, bottom = 8.dp),
                     )
 
+                    var lastSavedBlurRadius by remember {
+                        mutableStateOf(backgroundBlurRadiusInput)
+                    }
                     val blurInteractionSource = remember { MutableInteractionSource() }
-                    var pendingBlurRadius by remember { mutableStateOf<Float?>(null) }
+                    val latestBlurRadius by rememberUpdatedState(backgroundBlurRadiusInput)
                     val latestBlurRadiusChange by
                         rememberUpdatedState(onBackgroundBlurRadiusInputChange)
 
                     val onBlurValueChange = remember {
-                        { value: Float ->
-                            pendingBlurRadius = value
-                            latestBlurRadiusChange(value)
-                        }
+                        { value: Float -> latestBlurRadiusChange(value) }
                     }
 
                     val onBlurValueChangeFinished = remember {
                         {
-                            pendingBlurRadius?.let {
-                                editorSession.setFloat("background_blur_radius", it)
+                            val newBlurRadius = latestBlurRadius
+                            if (abs(lastSavedBlurRadius - newBlurRadius) > 0.1f) {
+                                editorSession.setFloat("background_blur_radius", newBlurRadius)
+                                lastSavedBlurRadius = newBlurRadius
                             }
-                            pendingBlurRadius = null
                         }
                     }
 

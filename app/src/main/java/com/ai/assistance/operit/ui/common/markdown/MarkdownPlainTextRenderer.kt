@@ -12,9 +12,7 @@ internal suspend fun markdownToPlainTextForCopy(
     markdown: String,
     latexToPlainText: (List<String>) -> List<String> = { it },
 ): String {
-    // A complete document needs an explicit line ending to flush native streaming parser lookahead.
-    val completeMarkdown = if (markdown.endsWith('\n')) markdown else "$markdown\n"
-    val nodes = parseMarkdownToNodes(completeMarkdown).map { it.toStableNode() }
+    val nodes = parseMarkdownToNodes(markdown).map { it.toStableNode() }
     val latexSegments = mutableListOf<String>()
     val rendered = joinBlocks(nodes, latexSegments)
     // 折叠"空白行"：2 个以上换行（中间可能夹着空格/全角空格等水平空白，例如模型输出里

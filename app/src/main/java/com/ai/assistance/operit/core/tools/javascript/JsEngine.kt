@@ -12,8 +12,6 @@ import com.ai.assistance.operit.core.chat.messageTimingNow
 import com.ai.assistance.operit.core.tools.AIToolHandler
 import com.ai.assistance.operit.core.tools.packTool.PackageManager
 import com.ai.assistance.operit.core.tools.packTool.TOOLPKG_EVENT_MESSAGE_PROCESSING
-import com.ai.assistance.operit.core.tools.packTool.ToolPkgApiCompatibility
-import com.ai.assistance.operit.core.tools.packTool.ToolPkgApiVersion
 import com.ai.assistance.operit.ui.main.navigation.AppRouteDiscoveryGateway
 import com.ai.assistance.operit.ui.main.navigation.AppRouterGateway
 import com.ai.assistance.operit.ui.main.navigation.RouteEntrySource
@@ -88,7 +86,6 @@ class JsEngine(private val context: Context) {
         val dispatchIntermediateOnMain: Boolean,
         val envOverrides: Map<String, String>,
         val packageChatId: String?,
-        val toolPkgApiVersion: ToolPkgApiVersion?,
         val toolPkgLogSnapshot: JsToolPkgExecutionContext.LogSnapshot,
         val executionListener: JsExecutionListener?
     )
@@ -311,7 +308,6 @@ class JsEngine(private val context: Context) {
         envOverrides: Map<String, String>,
         onIntermediateResult: ((Any?) -> Unit)?,
         dispatchIntermediateOnMain: Boolean,
-        toolPkgApiVersion: ToolPkgApiVersion?,
         executionListener: JsExecutionListener?
     ): ExecutionSession {
         return ExecutionSession(
@@ -325,41 +321,9 @@ class JsEngine(private val context: Context) {
                     ?.toString()
                     ?.trim()
                     ?.ifBlank { null },
-            toolPkgApiVersion = toolPkgApiVersion,
             toolPkgLogSnapshot = toolPkgExecutionContext.capture(script, functionName, params),
             executionListener = executionListener
         )
-    }
-
-    private fun resolveToolPkgApiVersionForExecution(
-        params: Map<String, Any?>,
-        explicitApiVersion: String?
-    ): ToolPkgApiVersion? {
-        val explicitVersion = explicitApiVersion?.trim().orEmpty()
-        if (explicitVersion.isNotBlank()) {
-            return ToolPkgApiCompatibility.requireSupported(explicitVersion)
-        }
-
-        val containerPackageName =
-            params["__operit_ui_package_name"]
-                ?.toString()
-                ?.trim()
-                ?.ifBlank { null }
-                ?: return null
-        val declaredVersion =
-            packageManager.getToolPkgContainerDetails(containerPackageName, context)
-                ?.apiVersion
-                ?: return null
-        return ToolPkgApiCompatibility.requireSupported(declaredVersion)
-    }
-
-    private fun buildToolPkgApiContextJson(apiVersion: ToolPkgApiVersion?): Any {
-        return if (apiVersion == null) {
-            JSONObject.NULL
-        } else {
-            JSONObject()
-                .put("apiVersion", apiVersion.toString())
-        }
     }
 
     private fun resolveExecutionSession(callId: String): ExecutionSession? {
@@ -758,7 +722,6 @@ class JsEngine(private val context: Context) {
             dispatchIntermediateOnMain: Boolean = true,
             timeoutSec: Long? = JsTimeoutConfig.MAIN_TIMEOUT_SECONDS.toLong(),
             timeoutMillis: Long? = null,
-            toolPkgApiVersion: String? = null,
             executionListener: JsExecutionListener? = null
     ): Any? {
         val effectiveParams = params.toMutableMap()
@@ -815,11 +778,6 @@ class JsEngine(private val context: Context) {
                 }
             }
 
-            val executionToolPkgApiVersion =
-                resolveToolPkgApiVersionForExecution(
-                    params = effectiveParams,
-                    explicitApiVersion = toolPkgApiVersion
-                )
             val callId = nextExecutionCallId()
             val session =
                 createExecutionSession(
@@ -830,7 +788,6 @@ class JsEngine(private val context: Context) {
                     envOverrides = envOverrides,
                     onIntermediateResult = onIntermediateResult,
                     dispatchIntermediateOnMain = dispatchIntermediateOnMain,
-                    toolPkgApiVersion = executionToolPkgApiVersion,
                     executionListener = executionListener
                 )
             activeExecutionSessions[callId] = session
@@ -861,7 +818,6 @@ class JsEngine(private val context: Context) {
                     .put(functionName)
                     .put(safeTimeoutSec ?: JSONObject.NULL)
                     .put(preTimeoutMs ?: JSONObject.NULL)
-                    .put(buildToolPkgApiContextJson(session.toolPkgApiVersion))
                     .toString()
             if (shouldLogTiming) {
                 logMessageTiming(
@@ -1045,7 +1001,6 @@ class JsEngine(private val context: Context) {
     internal fun executeToolPkgMainRegistrationFunction(
         script: String,
         functionName: String,
-        apiVersion: String = ToolPkgApiCompatibility.LEGACY_API_VERSION,
         params: Map<String, Any?> = emptyMap()
     ): ToolPkgMainRegistrationCapture {
         synchronized(toolPkgRegistrationSession) {
@@ -1056,7 +1011,6 @@ class JsEngine(private val context: Context) {
                         script = script,
                         functionName = functionName,
                         params = params,
-                        toolPkgApiVersion = apiVersion,
                         timeoutSec = 12L
                     )
                 return toolPkgRegistrationSession.finish(executionResult)
@@ -1883,16 +1837,6 @@ class JsEngine(private val context: Context) {
         @JavascriptInterface
         fun registerToolPkgChatMessageHook(specJson: String) {
             toolPkgRegistrationSession.appendChatMessageHook(specJson)
-        }
-
-        @JavascriptInterface
-        fun registerToolPkgChatMessageMenuItem(specJson: String) {
-            toolPkgRegistrationSession.appendChatMessageMenuItem(specJson)
-        }
-
-        @JavascriptInterface
-        fun registerToolPkgChatRuntimeHook(specJson: String) {
-            toolPkgRegistrationSession.appendChatRuntimeHook(specJson)
         }
 
         @JavascriptInterface

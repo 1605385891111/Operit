@@ -25,13 +25,11 @@ open class KimiProvider(
     modelName: String,
     client: OkHttpClient,
     customHeaders: Map<String, String> = emptyMap(),
-    private val providerType: ApiProviderType = ApiProviderType.MOONSHOT,
+    providerType: ApiProviderType = ApiProviderType.MOONSHOT,
     supportsVision: Boolean = false,
     supportsAudio: Boolean = false,
     supportsVideo: Boolean = false,
-    enableToolCall: Boolean = false,
-    thinkingConfigurations: String = "",
-    thinkingOptionId: String = ""
+    enableToolCall: Boolean = false
 ) : OpenAIProvider(
     apiEndpoint = apiEndpoint,
     apiKeyProvider = apiKeyProvider,
@@ -42,11 +40,8 @@ open class KimiProvider(
     supportsVision = supportsVision,
     supportsAudio = supportsAudio,
     supportsVideo = supportsVideo,
-    enableToolCall = enableToolCall,
-        thinkingConfigurations = thinkingConfigurations,
-        thinkingOptionId = thinkingOptionId
+    enableToolCall = enableToolCall
 ) {
-    private val configuredApiEndpoint = apiEndpoint
 
     override fun createRequestBody(
         context: Context,
@@ -58,15 +53,11 @@ open class KimiProvider(
         preserveThinkInHistory: Boolean
     ): RequestBody {
         fun applyThinkingParams(jsonObject: JSONObject) {
-            ThinkingConfigurationApplier.apply(
-                context = context,
-                requestJson = jsonObject,
-                providerTypeId = providerType.name,
-                modelName = modelName,
-                apiEndpoint = configuredApiEndpoint,
-                thinkingConfigurations = thinkingConfigurations,
-                enableThinking = enableThinking,
-                optionId = thinkingOptionId,
+            jsonObject.put(
+                "thinking",
+                JSONObject().apply {
+                    put("type", if (enableThinking) "enabled" else "disabled")
+                }
             )
         }
 
@@ -74,9 +65,6 @@ open class KimiProvider(
             val baseRequestBodyJson =
                 super.createRequestBodyInternal(context, chatHistory, modelParameters, stream, availableTools, preserveThinkInHistory)
             val jsonObject = JSONObject(baseRequestBodyJson)
-            if (stream) {
-                jsonObject.put("stream_options", JSONObject().put("include_usage", true))
-            }
             applyThinkingParams(jsonObject)
             return createJsonRequestBody(jsonObject.toString())
         }
@@ -84,9 +72,6 @@ open class KimiProvider(
         val jsonObject = JSONObject()
         jsonObject.put("model", modelName)
         jsonObject.put("stream", stream)
-        if (stream) {
-            jsonObject.put("stream_options", JSONObject().put("include_usage", true))
-        }
         applyThinkingParams(jsonObject)
 
         for (param in modelParameters) {
@@ -169,8 +154,8 @@ open class KimiProvider(
         var queuedAssistantToolText: String? = null
         var queuedAssistantReasoning: String? = null
         var queuedToolCalls = JSONArray()
-        val queuedOpenToolCalls = mutableListOf<StructuredToolCallBridge.OpenToolCall>()
-        val openToolCalls = mutableListOf<StructuredToolCallBridge.OpenToolCall>()
+        val queuedToolCallIds = mutableListOf<String>()
+        val openToolCallIds = mutableListOf<String>()
         var nextToolCallOrdinal = 0
 
         fun appendQueuedAssistantToolText(text: String) {
@@ -202,12 +187,7 @@ open class KimiProvider(
                 val callId = generatedToolCallId(nextToolCallOrdinal++)
                 toolCall.put("id", callId)
                 queuedToolCalls.put(toolCall)
-                queuedOpenToolCalls.add(
-                    StructuredToolCallBridge.OpenToolCall(
-                        callId,
-                        StructuredToolCallBridge.toolCallName(toolCall)
-                    )
-                )
+                queuedToolCallIds.add(callId)
             }
         }
 
@@ -219,7 +199,7 @@ open class KimiProvider(
                     put("role", "assistant")
                     put("reasoning_content", queuedAssistantReasoning.orEmpty())
                     if (!queuedAssistantToolText.isNullOrBlank()) {
-                        put("content", buildContentField(context, queuedAssistantToolText!!, role = "assistant"))
+                        put("content", buildContentField(context, queuedAssistantToolText!!))
                     } else {
                         put("content", null)
                     }
@@ -227,37 +207,31 @@ open class KimiProvider(
                 }
             )
 
-            openToolCalls.addAll(queuedOpenToolCalls)
+            openToolCallIds.addAll(queuedToolCallIds)
             queuedAssistantToolText = null
             queuedAssistantReasoning = null
             queuedToolCalls = JSONArray()
-            queuedOpenToolCalls.clear()
+            queuedToolCallIds.clear()
         }
 
-        fun flushOpenToolCallsAsUnmatched(reason: String) {
+        fun flushOpenToolCallsAsCancelled(reason: String) {
             emitQueuedToolCallsIfNeeded()
-            if (openToolCalls.isEmpty()) return
+            if (openToolCallIds.isEmpty()) return
 
             AppLogger.w(
                 "KimiProvider",
-                "发现未匹配的tool_calls，按工具结果未匹配处理: count=${openToolCalls.size}, reason=$reason"
+                "发现未完成的tool_calls，按取消处理: count=${openToolCallIds.size}, reason=$reason"
             )
-            for (openToolCall in openToolCalls) {
+            for (toolCallId in openToolCallIds) {
                 messagesArray.put(
                     JSONObject().apply {
                         put("role", "tool")
-                        put("tool_call_id", openToolCall.id)
-                        put(
-                            "content",
-                            StructuredToolCallBridge.unmatchedToolResultContent(
-                                reason,
-                                openToolCall.matchingName
-                            )
-                        )
+                        put("tool_call_id", toolCallId)
+                        put("content", "User cancelled")
                     }
                 )
             }
-            openToolCalls.clear()
+            openToolCallIds.clear()
         }
 
         if (effectiveHistory.isNotEmpty()) {
@@ -266,18 +240,18 @@ open class KimiProvider(
                 if (useToolCall) {
                     when (turn.kind) {
                         PromptTurnKind.SYSTEM -> {
-                            flushOpenToolCallsAsUnmatched("system_boundary")
+                            flushOpenToolCallsAsCancelled("system_boundary")
                             messagesArray.put(
                                 JSONObject().apply {
                                     put("role", "system")
-                                    put("content", buildContentField(context, originalContent, role = "system"))
+                                    put("content", buildContentField(context, originalContent))
                                 }
                             )
                         }
 
                         PromptTurnKind.USER,
                         PromptTurnKind.SUMMARY -> {
-                            flushOpenToolCallsAsUnmatched("user_boundary")
+                            flushOpenToolCallsAsCancelled("user_boundary")
                             messagesArray.put(
                                 JSONObject().apply {
                                     put("role", "user")
@@ -297,23 +271,18 @@ open class KimiProvider(
                                 }
 
                             if (toolCalls != null && toolCalls.length() > 0) {
-                                if (openToolCalls.isNotEmpty()) {
-                                    flushOpenToolCallsAsUnmatched("assistant_tool_call_before_result")
+                                if (openToolCallIds.isNotEmpty()) {
+                                    flushOpenToolCallsAsCancelled("assistant_tool_call_before_result")
                                 }
                                 queueToolCalls(textContent, toolCalls, reasoningContent)
                             } else {
-                                flushOpenToolCallsAsUnmatched("assistant_boundary")
+                                flushOpenToolCallsAsCancelled("assistant_boundary")
                                 messagesArray.put(
                                     JSONObject().apply {
                                         put("role", "assistant")
                                         put("reasoning_content", reasoningContent)
-                                        put("content", buildContentField(context, content.ifBlank { "[Empty]" }, role = "assistant"))
+                                        put("content", buildContentField(context, content.ifBlank { "[Empty]" }))
                                     }
-                                )
-                                appendReadableImageMessageIfNeeded(
-                                    messagesArray,
-                                    content,
-                                    "assistant message"
                                 )
                             }
                         }
@@ -328,23 +297,18 @@ open class KimiProvider(
                                 }
 
                             if (toolCalls != null && toolCalls.length() > 0) {
-                                if (openToolCalls.isNotEmpty()) {
-                                    flushOpenToolCallsAsUnmatched("typed_tool_call_before_result")
+                                if (openToolCallIds.isNotEmpty()) {
+                                    flushOpenToolCallsAsCancelled("typed_tool_call_before_result")
                                 }
                                 queueToolCalls(textContent, toolCalls)
                             } else {
-                                flushOpenToolCallsAsUnmatched("typed_tool_call_without_payload")
+                                flushOpenToolCallsAsCancelled("typed_tool_call_without_payload")
                                 messagesArray.put(
                                     JSONObject().apply {
                                         put("role", "assistant")
                                         put("reasoning_content", "")
-                                        put("content", buildContentField(context, originalContent.ifBlank { "[Empty]" }, role = "assistant"))
+                                        put("content", buildContentField(context, originalContent.ifBlank { "[Empty]" }))
                                     }
-                                )
-                                appendReadableImageMessageIfNeeded(
-                                    messagesArray,
-                                    originalContent,
-                                    "assistant tool-call message"
                                 )
                             }
                         }
@@ -354,39 +318,28 @@ open class KimiProvider(
                             val (textContent, toolResults) = parseXmlToolResults(originalContent)
                             val resultsList = toolResults ?: emptyList()
 
-                            if (resultsList.isNotEmpty() && openToolCalls.isNotEmpty()) {
-                                val readableImageSources = mutableListOf<String>()
-                                val matchedCalls =
-                                    StructuredToolCallBridge.consumeMatchingToolCalls(
-                                        openToolCalls,
-                                        resultsList.map { it.first }
-                                    )
-                                matchedCalls.forEach { matchedCall ->
-                                    val resultContent = resultsList[matchedCall.resultIndex].second
-                                    readableImageSources.add(resultContent)
+                            if (resultsList.isNotEmpty() && openToolCallIds.isNotEmpty()) {
+                                val validCount = minOf(resultsList.size, openToolCallIds.size)
+                                repeat(validCount) { index ->
+                                    val (_, resultContent) = resultsList[index]
                                     messagesArray.put(
                                         JSONObject().apply {
                                             put("role", "tool")
-                                            put("tool_call_id", matchedCall.call.id)
-                                            put("content", buildContentField(context, resultContent, role = "tool"))
+                                            put("tool_call_id", openToolCallIds[index])
+                                            put("content", resultContent)
                                         }
                                     )
                                 }
-
-                                if (matchedCalls.size < resultsList.size) {
-                                    AppLogger.w(
-                                        "KimiProvider",
-                                        "发现未匹配的tool_result: ${resultsList.size - matchedCalls.size}"
-                                    )
+                                repeat(validCount) {
+                                    openToolCallIds.removeAt(0)
                                 }
 
-                                flushOpenToolCallsAsUnmatched("tool_result_partial_batch")
-
-                                appendReadableImageMessageIfNeeded(
-                                    messagesArray,
-                                    readableImageSources,
-                                    "tool result"
-                                )
+                                if (resultsList.size > validCount) {
+                                    AppLogger.w(
+                                        "KimiProvider",
+                                        "发现多余的tool_result: ${resultsList.size} results vs ${validCount} pending tool_calls"
+                                    )
+                                }
 
                                 if (textContent.isNotEmpty()) {
                                     messagesArray.put(
@@ -397,15 +350,19 @@ open class KimiProvider(
                                     )
                                 }
                             } else {
-                                flushOpenToolCallsAsUnmatched("tool_result_without_structured_match")
-                                if (textContent.isNotEmpty()) {
-                                    messagesArray.put(
-                                        JSONObject().apply {
-                                            put("role", "user")
-                                            put("content", buildContentField(context, textContent))
-                                        }
-                                    )
-                                }
+                                flushOpenToolCallsAsCancelled("tool_result_without_structured_match")
+                                val fallbackContent =
+                                    when {
+                                        textContent.isNotEmpty() -> textContent
+                                        originalContent.isNotBlank() -> originalContent
+                                        else -> "[Empty]"
+                                    }
+                                messagesArray.put(
+                                    JSONObject().apply {
+                                        put("role", "user")
+                                        put("content", buildContentField(context, fallbackContent))
+                                    }
+                                )
                             }
                         }
                     }
@@ -415,21 +372,13 @@ open class KimiProvider(
                             messagesArray.put(
                                 JSONObject().apply {
                                     put("role", "system")
-                                    put("content", buildContentField(context, originalContent, role = "system"))
-                                }
-                            )
-                        }
-
-                        PromptTurnKind.USER,
-                        PromptTurnKind.SUMMARY -> {
-                            messagesArray.put(
-                                JSONObject().apply {
-                                    put("role", "user")
                                     put("content", buildContentField(context, originalContent))
                                 }
                             )
                         }
 
+                        PromptTurnKind.USER,
+                        PromptTurnKind.SUMMARY,
                         PromptTurnKind.TOOL_RESULT -> {
                             messagesArray.put(
                                 JSONObject().apply {
@@ -445,13 +394,8 @@ open class KimiProvider(
                                 JSONObject().apply {
                                     put("role", "assistant")
                                     put("reasoning_content", reasoningContent)
-                                    put("content", buildContentField(context, content.ifBlank { "[Empty]" }, role = "assistant"))
+                                    put("content", buildContentField(context, content.ifBlank { "[Empty]" }))
                                 }
-                            )
-                            appendReadableImageMessageIfNeeded(
-                                messagesArray,
-                                content,
-                                "assistant message"
                             )
                         }
 
@@ -460,13 +404,8 @@ open class KimiProvider(
                                 JSONObject().apply {
                                     put("role", "assistant")
                                     put("reasoning_content", "")
-                                    put("content", buildContentField(context, originalContent.ifBlank { "[Empty]" }, role = "assistant"))
+                                    put("content", buildContentField(context, originalContent.ifBlank { "[Empty]" }))
                                 }
-                            )
-                            appendReadableImageMessageIfNeeded(
-                                messagesArray,
-                                originalContent,
-                                "assistant tool-call message"
                             )
                         }
                     }
@@ -474,7 +413,7 @@ open class KimiProvider(
             }
         }
 
-        flushOpenToolCallsAsUnmatched("history_end")
+        flushOpenToolCallsAsCancelled("history_end")
         return messagesArray
     }
 
@@ -487,11 +426,8 @@ open class KimiProvider(
         availableTools: List<ToolPrompt>?,
         preserveThinkInHistory: Boolean,
         onTokensUpdated: suspend (input: Long, cachedInput: Long, output: Long) -> Unit,
-        onUsageReported: (suspend (com.ai.assistance.operit.data.stats.ProviderUsageSnapshot, attempt: Int) -> Unit)?,
         onNonFatalError: suspend (error: String) -> Unit,
-        enableRetry: Boolean,
-        recordTokenUsage: Boolean,
-        onUsageFinalized: (suspend (attempt: Int?) -> Unit)?,
+        enableRetry: Boolean
     ): Stream<String> {
         return super.sendMessage(
             context,
@@ -502,11 +438,8 @@ open class KimiProvider(
             availableTools,
             preserveThinkInHistory,
             onTokensUpdated,
-            onUsageReported,
             onNonFatalError,
-            enableRetry,
-            recordTokenUsage,
-            onUsageFinalized,
+            enableRetry
         )
     }
 }

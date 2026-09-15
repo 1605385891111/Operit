@@ -64,9 +64,7 @@ fun TabletLayout(
         onGoBack: () -> Unit,
         isNavigatingBack: Boolean = false,
         topBarActions: @Composable RowScope.() -> Unit = {},
-        topBarTitleContent: TopBarTitleContent? = null,
-        /** 当前导航栈中仍存活的路由 screenKey（路由级 ViewModelStore 清理依据）。 */
-        aliveScreenKeys: Set<String>
+        topBarTitleContent: TopBarTitleContent? = null
 ) {
         val drawerAppearance = rememberNavigationDrawerAppearance()
         val sidebarWidthAnimationDurationMillis = 280
@@ -201,8 +199,7 @@ fun TabletLayout(
                                 onGoBack = onGoBack,
                                 isNavigatingBack = isNavigatingBack,
                                 actions = topBarActions,
-                                titleContent = topBarTitleContent,
-                                aliveScreenKeys = aliveScreenKeys
+                                titleContent = topBarTitleContent
                         )
                 }
         }

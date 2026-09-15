@@ -33,8 +33,8 @@ internal object ToolPkgLoader {
                     sourcePath = file.absolutePath,
                     isBuiltIn = false,
                     parseJsPackage = parseJsPackage,
-                    parseMainRegistration = { mainScriptText, toolPkgId, mainScriptPath, apiVersion ->
-                        parseMainRegistration(mainScriptText, toolPkgId, mainScriptPath, apiVersion, jsEngine)
+                    parseMainRegistration = { mainScriptText, toolPkgId, mainScriptPath ->
+                        parseMainRegistration(mainScriptText, toolPkgId, mainScriptPath, jsEngine)
                     },
                     reportPackageLoadError = reportPackageLoadError
                 )
@@ -74,8 +74,8 @@ internal object ToolPkgLoader {
                 sourcePath = assetPath,
                 isBuiltIn = true,
                 parseJsPackage = parseJsPackage,
-                parseMainRegistration = { mainScriptText, toolPkgId, mainScriptPath, apiVersion ->
-                    parseMainRegistration(mainScriptText, toolPkgId, mainScriptPath, apiVersion, jsEngine)
+                parseMainRegistration = { mainScriptText, toolPkgId, mainScriptPath ->
+                    parseMainRegistration(mainScriptText, toolPkgId, mainScriptPath, jsEngine)
                 },
                 reportPackageLoadError = reportPackageLoadError
             )
@@ -86,14 +86,12 @@ internal object ToolPkgLoader {
         mainScriptText: String,
         toolPkgId: String,
         mainScriptPath: String,
-        apiVersion: String,
         jsEngine: JsEngine
     ): ToolPkgMainRegistrationParseResult {
         return ToolPkgMainRegistrationScriptParser.parse(
             script = mainScriptText,
             toolPkgId = toolPkgId,
             mainScriptPath = mainScriptPath,
-            apiVersion = apiVersion,
             jsEngine = jsEngine
         )
     }

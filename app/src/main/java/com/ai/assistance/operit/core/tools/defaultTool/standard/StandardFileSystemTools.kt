@@ -179,6 +179,7 @@ open class StandardFileSystemTools(protected val context: Context) {
 
     protected suspend fun getGrepModelParameters(): List<ModelParameter<*>> {
         val functionalConfigManager = FunctionalConfigManager(context)
+        functionalConfigManager.initializeIfNeeded()
         val modelConfigManager = ModelConfigManager(context)
         val mapping = functionalConfigManager.getConfigMappingForFunction(FunctionType.GREP)
         return modelConfigManager.getModelParametersForConfig(mapping.configId)
@@ -610,7 +611,7 @@ open class StandardFileSystemTools(protected val context: Context) {
             val overallStartTime = System.currentTimeMillis()
             ToolProgressBus.update(toolName, 0f, "Preparing search...")
 
-            val useEnglish = !LocaleUtils.usesChineseContent(context)
+            val useEnglish = LocaleUtils.getCurrentLanguage(context).lowercase().startsWith("en")
 
             val fallback = listOf(intent.take(60)).filter { it.isNotBlank() }
             var queries = normalizeQueries(fallback).take(8)

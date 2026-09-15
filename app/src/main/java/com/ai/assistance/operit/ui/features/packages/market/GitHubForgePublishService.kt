@@ -6,7 +6,6 @@ import com.ai.assistance.operit.data.api.GitHubRelease
 import com.ai.assistance.operit.data.api.GitHubReleaseAsset
 import com.ai.assistance.operit.data.api.MarketStatsApiService
 import com.ai.assistance.operit.data.api.MarketV2Entry
-import com.ai.assistance.operit.data.api.MarketV2NewVersionEntryPatch
 import com.ai.assistance.operit.data.api.MarketV2PublishAsset
 import com.ai.assistance.operit.data.api.MarketV2PublishRequest
 import com.ai.assistance.operit.data.api.MarketV2PublishVersion
@@ -127,6 +126,7 @@ class GitHubForgePublishService(
                     maxSupportedAppVersion = request.maxSupportedAppVersion,
                     publishContext = request.publishContext
                 )
+
             val resolvedAsset =
                 when (val source = request.source) {
                     is PublishArtifactSource.DirectUpload -> {
@@ -164,7 +164,7 @@ class GitHubForgePublishService(
                                 version = descriptor.version,
                                 author = listOf(currentUser.login)
                             )
-                        val processedFileBytes = ToolPkgArtifactMinifier.processArtifactFile(
+                        val fileBytes = ToolPkgArtifactMinifier.processArtifactFile(
                             context = context,
                             sourceFile = sourceFile,
                             isToolPkg = descriptor.type == PublishArtifactType.PACKAGE,
@@ -177,7 +177,7 @@ class GitHubForgePublishService(
                                 repo = forgeRepo.repoName,
                                 release = ensuredRelease.release,
                                 descriptor = descriptor,
-                                content = processedFileBytes
+                                content = fileBytes
                             ).getOrElse { error ->
                                 return@withContext Result.failure(error)
                             }
@@ -187,7 +187,7 @@ class GitHubForgePublishService(
                             repository = forgeRepo.repoName,
                             release = ensuredRelease.release,
                             asset = uploadedAsset,
-                            sha256 = sha256Hex(processedFileBytes),
+                            sha256 = sha256Hex(fileBytes),
                             releaseWasCreated = ensuredRelease.created
                         )
                     }
@@ -243,10 +243,8 @@ class GitHubForgePublishService(
                     downloadUrl = resolvedAsset.asset.browser_download_url,
                     sha256 = resolvedAsset.sha256,
                     version = descriptor.version,
-                    apiVersion = descriptor.apiVersion,
                     displayName = descriptor.displayName,
                     description = descriptor.description,
-                    detail = descriptor.detail,
                     categoryId = descriptor.categoryId,
                     allowPublicUpdates = descriptor.allowPublicUpdates,
                     sourceFileName = sourceFile.name,
@@ -259,7 +257,7 @@ class GitHubForgePublishService(
                 registerMarketEntry(
                     payload = payload,
                     existingEntryId = request.publishContext?.entryId,
-                    publishContext = request.publishContext
+                    includeEntryPatch = request.publishContext?.canEditEntry ?: true
                 ).getOrElse { error ->
                     return@withContext Result.success(
                         PublishAttemptResult.RegistrationFailed(
@@ -431,7 +429,7 @@ class GitHubForgePublishService(
     private suspend fun registerMarketEntry(
         payload: MarketRegistrationPayload,
         existingEntryId: String?,
-        publishContext: ArtifactPublishClusterContext?
+        includeEntryPatch: Boolean
     ): Result<MarketV2Entry> {
         val request =
             MarketV2PublishRequest(
@@ -440,13 +438,12 @@ class GitHubForgePublishService(
                 description = payload.description,
                 categoryId = payload.categoryId,
                 allowPublicUpdates = payload.allowPublicUpdates,
-                detail = payload.detail.ifBlank { payload.description },
+                detail = payload.projectDescription.ifBlank { payload.description },
                 version = MarketV2PublishVersion(
                     version = payload.version,
                     formatVer = payload.type.marketFormatVersion(),
                     minAppVer = requireNotNull(payload.minSupportedAppVersion) { "Minimum supported app version is required" },
                     maxAppVer = payload.maxSupportedAppVersion ?: DEFAULT_MAX_SUPPORTED_APP_VERSION,
-                    apiVersion = payload.apiVersion,
                     projectId = payload.projectId,
                     runtimePackageId = payload.runtimePackageId
                 ),
@@ -466,14 +463,14 @@ class GitHubForgePublishService(
         return marketStatsApiService.publishNewVersion(
             entryId = resolvedEntryId,
             request = request,
-            entryPatch = buildNewVersionEntryPatch(payload, publishContext)
+            includeEntryPatch = includeEntryPatch
         ).map { response ->
             MarketV2Entry(
                 type = payload.type.wireValue,
                 id = response.entryId,
                 title = payload.displayName,
                 description = payload.description,
-                detail = payload.detail.ifBlank { payload.description },
+                detail = payload.projectDescription.ifBlank { payload.description },
                 stateCode = "pending",
                 latestVersion = MarketV2Version(
                     id = response.versionId,
@@ -481,40 +478,11 @@ class GitHubForgePublishService(
                     formatVer = payload.type.marketFormatVersion(),
                     minAppVer = requireNotNull(payload.minSupportedAppVersion) { "Minimum supported app version is required" },
                     maxAppVer = payload.maxSupportedAppVersion ?: DEFAULT_MAX_SUPPORTED_APP_VERSION,
-                    apiVersion = payload.apiVersion,
                     stateCode = "pending",
                     projectId = payload.projectId,
                     runtimePackageId = payload.runtimePackageId
                 )
             )
-        }
-    }
-
-    private fun buildNewVersionEntryPatch(
-        payload: MarketRegistrationPayload,
-        publishContext: ArtifactPublishClusterContext?
-    ): MarketV2NewVersionEntryPatch? {
-        val context = publishContext ?: return null
-        val patch =
-            if (context.canEditEntry) {
-                MarketV2NewVersionEntryPatch(
-                    title = payload.displayName.takeIf { it != context.lockedDisplayName },
-                    description = payload.description.takeIf { it != context.marketDescription },
-                    detail = payload.detail.takeIf { it != context.marketDetail },
-                    categoryId = payload.categoryId.takeIf { it != context.categoryId }
-                )
-            } else {
-                MarketV2NewVersionEntryPatch(
-                    description = payload.description.takeIf { it != context.marketDescription },
-                    detail = payload.detail.takeIf { it != context.marketDetail }
-                )
-            }
-        return patch.takeIf {
-            it.title != null ||
-                it.description != null ||
-                it.detail != null ||
-                it.categoryId != null ||
-                it.allowPublicUpdates != null
         }
     }
 

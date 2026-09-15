@@ -26,16 +26,8 @@ d:\Code\prog\assistance\tools\compose_dsl\dump_current_compose_dsl_ui.bat
 - 已安装并可使用 `adb`
 - 至少连接了一台可调试设备
 - 设备上的宿主版本已经包含当前调试导出逻辑
-- 设备上已安装 `com.ai.assistance.operit.debug` 或 `com.ai.assistance.operit`；脚本未指定时优先使用 Debug 包
 
 如果连接了多台设备，脚本会提示选择目标设备。
-
-如果 Debug 和 Release APK 同时安装，可以用环境变量指定目标：
-
-```bat
-set OPERIT_APP_PACKAGE=com.ai.assistance.operit
-d:\Code\prog\assistance\tools\compose_dsl\dump_current_compose_dsl_ui.bat
-```
 
 ## 导出位置
 

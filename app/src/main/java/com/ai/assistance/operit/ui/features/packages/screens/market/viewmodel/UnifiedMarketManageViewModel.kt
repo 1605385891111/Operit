@@ -5,6 +5,7 @@ import android.widget.Toast
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.ai.assistance.operit.BuildConfig
 import com.ai.assistance.operit.R
 import com.ai.assistance.operit.data.api.MarketStatsApiService
 import com.ai.assistance.operit.data.api.MarketV2Entry
@@ -162,18 +163,20 @@ class UnifiedMarketManageViewModel(
         entry: MarketV2PublisherEntrySummary,
         onLoaded: (MarketV2Entry) -> Unit
     ) {
+        val revisionAvailableAtForLog = entry.revisionAvailableAt ?: "<null>"
         AppLogger.i(
             TAG,
             "revision_gate click entryId=${entry.id} stateCode=${entry.stateCode} " +
-                "updatedAt=${entry.updatedAt} next=getMyEntryDetail"
+                "revisionAvailableAt=$revisionAvailableAtForLog " +
+                "updatedAt=${entry.updatedAt} appVersion=${BuildConfig.VERSION_NAME}(${BuildConfig.VERSION_CODE})"
         )
-        openOwnedEntryDetail(entry, onLoaded)
-    }
-
-    fun openOwnedEntryDetail(
-        entry: MarketV2PublisherEntrySummary,
-        onLoaded: (MarketV2Entry) -> Unit
-    ) {
+        revisionCooldownMessage(entry)?.let { message ->
+            AppLogger.i(TAG, "revision_gate decision=blocked entryId=${entry.id} reason=cooldown message=$message")
+            _errorMessage.value = message
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+            return
+        }
+        AppLogger.i(TAG, "revision_gate decision=allowed entryId=${entry.id} next=getMyEntryDetail")
         viewModelScope.launch {
             if (!githubAuth.isLoggedIn()) {
                 _errorMessage.value = context.getString(R.string.skillmarket_github_login_required)
@@ -194,11 +197,67 @@ class UnifiedMarketManageViewModel(
                 onLoaded(fullEntry)
             } catch (e: Exception) {
                 _errorMessage.value = e.message ?: context.getString(R.string.market_error_load_failed)
-                AppLogger.e(TAG, "Failed to load owner detail for managed market entry ${entry.id}", e)
+                AppLogger.e(TAG, "Failed to load revision detail for managed market entry ${entry.id}", e)
             } finally {
                 _isLoading.value = false
             }
         }
+    }
+
+    private fun revisionCooldownMessage(entry: MarketV2PublisherEntrySummary): String? {
+        if (entry.stateCode != "changes_requested") {
+            AppLogger.i(
+                TAG,
+                "revision_gate evaluation entryId=${entry.id} decision=allowed " +
+                    "reason=state_not_changes_requested stateCode=${entry.stateCode}"
+            )
+            return null
+        }
+        val availableAt =
+            entry.revisionAvailableAt
+                ?.let { value ->
+                    runCatching { java.time.Instant.parse(value).toEpochMilli() }
+                        .onFailure {
+                            AppLogger.i(
+                                TAG,
+                                "revision_gate evaluation entryId=${entry.id} decision=allowed " +
+                                    "reason=invalid_revisionAvailableAt value=$value"
+                            )
+                        }
+                        .getOrNull()
+                }
+                ?: run {
+                    AppLogger.i(
+                        TAG,
+                        "revision_gate evaluation entryId=${entry.id} decision=allowed " +
+                            "reason=missing_revisionAvailableAt stateCode=${entry.stateCode}"
+                    )
+                    return null
+                }
+        val remainingMillis = availableAt - System.currentTimeMillis()
+        if (remainingMillis <= 0L) {
+            AppLogger.i(
+                TAG,
+                "revision_gate evaluation entryId=${entry.id} decision=allowed " +
+                    "reason=cooldown_expired availableAtEpochMs=$availableAt remainingMs=$remainingMillis"
+            )
+            return null
+        }
+        AppLogger.i(
+            TAG,
+            "revision_gate evaluation entryId=${entry.id} decision=blocked " +
+                "reason=cooldown_active availableAtEpochMs=$availableAt remainingMs=$remainingMillis"
+        )
+        val totalMinutes = ((remainingMillis + 59_999L) / 60_000L).coerceAtLeast(1L)
+        val hours = totalMinutes / 60L
+        val minutes = totalMinutes % 60L
+        val remainingText =
+            when {
+                hours > 0L && minutes > 0L -> "${hours}小时${minutes}分钟"
+                hours > 0L -> "${hours}小时"
+                else -> "${minutes}分钟"
+            }
+        return context.getString(R.string.market_manage_revision_cooldown, remainingText)
     }
 
     private fun updateEntryState(

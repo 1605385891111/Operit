@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import shutil
 import subprocess
 import sys
@@ -14,10 +13,16 @@ from pathlib import Path, PurePosixPath
 MANIFEST_FILENAMES = ("manifest.hjson", "manifest.json")
 SYNCABLE_SUFFIXES = {".js", ".toolpkg"}
 SYNC_MODES = ("normal", "test")
-DEBUG_APP_PACKAGE = "com.ai.assistance.operit.debug"
-RELEASE_APP_PACKAGE = "com.ai.assistance.operit"
-SUPPORTED_APP_PACKAGES = (DEBUG_APP_PACKAGE, RELEASE_APP_PACKAGE)
-APP_PACKAGE_ENV = "OPERIT_APP_PACKAGE"
+APP_PACKAGE = "com.ai.assistance.operit"
+ACTION_DEBUG_INSTALL_TOOLPKG = "com.ai.assistance.operit.DEBUG_INSTALL_TOOLPKG"
+ACTION_DEBUG_REFRESH_PACKAGES = "com.ai.assistance.operit.DEBUG_REFRESH_PACKAGES"
+RECEIVER_COMPONENT_TOOLPKG = (
+    "com.ai.assistance.operit/.core.tools.packTool.ToolPkgDebugInstallReceiver"
+)
+RECEIVER_COMPONENT_REFRESH = (
+    "com.ai.assistance.operit/.core.tools.packTool.PackageDebugRefreshReceiver"
+)
+REMOTE_PACKAGES_DIR = f"/sdcard/Android/data/{APP_PACKAGE}/files/packages"
 HOT_RELOAD_STATE_FILE = ".sync_example_packages_hot_reload_state.json"
 LOCAL_SYNC_STATE_FILE = ".sync_example_packages_local_state.json"
 
@@ -587,49 +592,6 @@ def _adb_command(
     )
 
 
-def _is_app_package_installed(device_serial: str, app_package: str) -> bool:
-    result = _adb_command(
-        device_serial,
-        "shell",
-        "pm",
-        "list",
-        "packages",
-        app_package,
-        capture_output=True,
-    )
-    expected_line = f"package:{app_package}"
-    return any(line.strip() == expected_line for line in result.stdout.splitlines())
-
-
-def _resolve_app_package(device_serial: str, requested_package: str | None) -> str:
-    # Hot reload must use the same applicationId as the installed APK, otherwise both the
-    # external package directory and the refresh/install broadcasts point at the wrong app.
-    configured_package = (requested_package or os.environ.get(APP_PACKAGE_ENV, "")).strip()
-    if configured_package:
-        if configured_package not in SUPPORTED_APP_PACKAGES:
-            supported = ", ".join(SUPPORTED_APP_PACKAGES)
-            raise ValueError(
-                f"Unsupported application package: {configured_package}. "
-                f"Expected one of: {supported}"
-            )
-        if not _is_app_package_installed(device_serial, configured_package):
-            raise ValueError(
-                f"Application package is not installed on {device_serial}: {configured_package}"
-            )
-        print(f"Using Operit application package: {configured_package}")
-        return configured_package
-
-    for app_package in SUPPORTED_APP_PACKAGES:
-        if _is_app_package_installed(device_serial, app_package):
-            print(f"Using Operit application package: {app_package}")
-            return app_package
-
-    supported = ", ".join(SUPPORTED_APP_PACKAGES)
-    raise ValueError(
-        f"Neither supported Operit application package is installed on {device_serial}: {supported}"
-    )
-
-
 def _parse_toolpkg_manifest_text(text: str, manifest_path: Path) -> str:
     package_id = ""
     try:
@@ -704,20 +666,16 @@ def _save_hot_reload_state(path: Path, state: dict[str, dict[str, str]]) -> None
     )
 
 
-def _broadcast_refresh_packages(device_serial: str, app_package: str) -> None:
-    action_debug_refresh_packages = f"{app_package}.DEBUG_REFRESH_PACKAGES"
-    receiver_component_refresh = (
-        f"{app_package}/.core.tools.packTool.PackageDebugRefreshReceiver"
-    )
+def _broadcast_refresh_packages(device_serial: str) -> None:
     _adb_command(
         device_serial,
         "shell",
         "am",
         "broadcast",
         "-a",
-        action_debug_refresh_packages,
+        ACTION_DEBUG_REFRESH_PACKAGES,
         "-n",
-        receiver_component_refresh,
+        RECEIVER_COMPONENT_REFRESH,
         "--include-stopped-packages",
         "--ez",
         "reactivate_active_packages",
@@ -729,23 +687,18 @@ def _broadcast_refresh_packages(device_serial: str, app_package: str) -> None:
 def _broadcast_debug_install_toolpkg(
     device_serial: str,
     *,
-    app_package: str,
     package_name: str,
     remote_file_path: str,
 ) -> None:
-    action_debug_install_toolpkg = f"{app_package}.DEBUG_INSTALL_TOOLPKG"
-    receiver_component_toolpkg = (
-        f"{app_package}/.core.tools.packTool.ToolPkgDebugInstallReceiver"
-    )
     _adb_command(
         device_serial,
         "shell",
         "am",
         "broadcast",
         "-a",
-        action_debug_install_toolpkg,
+        ACTION_DEBUG_INSTALL_TOOLPKG,
         "-n",
-        receiver_component_toolpkg,
+        RECEIVER_COMPONENT_TOOLPKG,
         "--include-stopped-packages",
         "--es",
         "package_name",
@@ -766,13 +719,10 @@ def _hot_reload_packages(
     packages_dir: Path,
     plans: list[SyncPlanItem],
     device_serial: str,
-    app_package: str,
 ) -> None:
-    remote_packages_dir = f"/sdcard/Android/data/{app_package}/files/packages"
     state_file = state_dir / HOT_RELOAD_STATE_FILE
     state = _load_hot_reload_state(state_file)
-    state_key = f"{device_serial}@{app_package}"
-    previous_signatures = state.get(state_key, {})
+    previous_signatures = state.get(device_serial, {})
 
     current_signatures: dict[str, str] = {}
     for plan in plans:
@@ -796,28 +746,21 @@ def _hot_reload_packages(
     )
 
     if not changed_names and not deleted_names:
-        print(
-            "SKIP-HOT-RELOAD: no package content changes for "
-            f"device {device_serial}, app {app_package}"
-        )
+        print(f"SKIP-HOT-RELOAD: no package content changes for device {device_serial}")
         return
 
-    print(
-        "HOT-RELOAD: "
-        f"device={device_serial}, app={app_package}, "
-        f"changed={len(changed_names)}, deleted={len(deleted_names)}"
-    )
-    _adb_command(device_serial, "shell", "mkdir", "-p", remote_packages_dir)
+    print(f"HOT-RELOAD: device={device_serial}, changed={len(changed_names)}, deleted={len(deleted_names)}")
+    _adb_command(device_serial, "shell", "mkdir", "-p", REMOTE_PACKAGES_DIR)
 
     for destination_name in deleted_names:
-        remote_path = f"{remote_packages_dir}/{destination_name}"
+        remote_path = f"{REMOTE_PACKAGES_DIR}/{destination_name}"
         print(f"HOT-DELETE: {remote_path}")
         _adb_command(device_serial, "shell", "rm", "-f", remote_path)
 
     changed_toolpkgs: list[tuple[str, str]] = []
     for destination_name in changed_names:
         local_path = packages_dir / destination_name
-        remote_path = f"{remote_packages_dir}/{destination_name}"
+        remote_path = f"{REMOTE_PACKAGES_DIR}/{destination_name}"
         print(f"HOT-PUSH: {local_path} -> {remote_path}")
         _adb_command(device_serial, "push", str(local_path), remote_path)
         if destination_name.lower().endswith(".toolpkg"):
@@ -825,18 +768,17 @@ def _hot_reload_packages(
             changed_toolpkgs.append((package_id, remote_path))
 
     print("HOT-RELOAD: broadcasting package refresh")
-    _broadcast_refresh_packages(device_serial, app_package)
+    _broadcast_refresh_packages(device_serial)
 
     for package_id, remote_path in changed_toolpkgs:
         print(f"HOT-INSTALL: {package_id} -> {remote_path}")
         _broadcast_debug_install_toolpkg(
             device_serial,
-            app_package=app_package,
             package_name=package_id,
             remote_file_path=remote_path,
         )
 
-    state[state_key] = current_signatures
+    state[device_serial] = current_signatures
     _save_hot_reload_state(state_file, state)
 
 
@@ -923,16 +865,6 @@ def main() -> int:
         help=(
             "adb device serial for post-sync hot reload. "
             "If omitted and exactly one device is connected, that device is used automatically."
-        ),
-    )
-    parser.add_argument(
-        "--app-package",
-        dest="app_package",
-        default=None,
-        help=(
-            "Operit applicationId for post-sync hot reload. Supports "
-            "com.ai.assistance.operit.debug and com.ai.assistance.operit; defaults to "
-            "OPERIT_APP_PACKAGE or automatic Debug-first detection."
         ),
     )
     parser.add_argument(
@@ -1075,18 +1007,13 @@ def main() -> int:
         device_serial = _resolve_hot_reload_device(args.device)
         if device_serial is not None:
             try:
-                app_package = _resolve_app_package(device_serial, args.app_package)
                 _hot_reload_packages(
                     state_dir=tools_dir,
                     packages_dir=packages_dir,
                     plans=plans,
                     device_serial=device_serial,
-                    app_package=app_package,
                 )
             except Exception as exc:
-                if args.app_package or os.environ.get(APP_PACKAGE_ENV, "").strip():
-                    print(f"ERROR: hot reload failed: {exc}", file=sys.stderr)
-                    return 4
                 print(f"SKIP-HOT-RELOAD: {exc}", file=sys.stderr)
 
     if not args.dry_run:

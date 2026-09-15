@@ -1,9 +1,7 @@
 package com.ai.assistance.operit.data.repository
 
 import android.content.Context
-import android.content.Intent
 import android.os.Environment
-import android.util.AtomicFile
 import com.ai.assistance.operit.R
 import com.ai.assistance.operit.util.AppLogger
 import com.ai.assistance.operit.core.workflow.NodeExecutionState
@@ -24,7 +22,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import java.io.File
-import java.io.IOException
+import android.content.Intent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
@@ -36,10 +34,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.job
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.UUID
 
 /**
  * 工作流仓库
@@ -63,7 +59,6 @@ class WorkflowRepository(private val context: Context) {
         private const val MAX_EXECUTION_LOG_FILES_PER_WORKFLOW = 30
 
         private const val SPEECH_TRIGGER_CACHE_TTL_MS = 2000L
-        private val workflowStoreMutex = Mutex()
         private val speechTriggerLastFireAtMs = ConcurrentHashMap<String, Long>()
 
         @Volatile
@@ -73,7 +68,6 @@ class WorkflowRepository(private val context: Context) {
         private var speechTriggerCachedAtMs: Long = 0L
 
         val workflowUpdateEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-        val workflowStorageWarnings = MutableSharedFlow<String>(extraBufferCapacity = 8)
         private val runningWorkflowLock = Any()
         private val runningWorkflowJobs = ConcurrentHashMap<String, MutableSet<Job>>()
         private val _runningWorkflowIds = MutableStateFlow<Set<String>>(emptySet())
@@ -126,11 +120,6 @@ class WorkflowRepository(private val context: Context) {
             }
         }
     }
-
-    private class WorkflowStorageException(
-        message: String,
-        cause: Throwable? = null
-    ) : IOException(message, cause)
     
     /**
      * 获取工作流存储目录
@@ -138,22 +127,8 @@ class WorkflowRepository(private val context: Context) {
     private fun getWorkflowDirectory(): File {
         val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
         val workflowDir = File(downloadDir, WORKFLOW_DIR)
-        if (workflowDir.exists()) {
-            if (!workflowDir.isDirectory) {
-                throw WorkflowStorageException(
-                    context.getString(R.string.workflow_storage_path_not_directory, workflowDir.absolutePath)
-                )
-            }
-        } else if (!workflowDir.mkdirs()) {
-            throw WorkflowStorageException(
-                context.getString(R.string.workflow_storage_dir_unavailable, workflowDir.absolutePath)
-            )
-        }
-
-        if (!workflowDir.canRead()) {
-            throw WorkflowStorageException(
-                context.getString(R.string.workflow_storage_dir_unreadable, workflowDir.absolutePath)
-            )
+        if (!workflowDir.exists()) {
+            workflowDir.mkdirs()
         }
         return workflowDir
     }
@@ -165,78 +140,10 @@ class WorkflowRepository(private val context: Context) {
         return File(getWorkflowDirectory(), "$workflowId.json")
     }
 
-    private fun getAtomicBackupFile(file: File): File {
-        val parent = file.parentFile
-            ?: throw WorkflowStorageException(
-                context.getString(R.string.workflow_storage_file_parent_missing, file.absolutePath)
-            )
-        return File(parent, "${file.name}.bak")
-    }
-
-    private fun hasAtomicReadableFile(file: File): Boolean {
-        return file.exists() || getAtomicBackupFile(file).exists()
-    }
-
-    private fun listWorkflowFiles(workflowDir: File): List<File> {
-        val files = workflowDir.listFiles() ?: throw WorkflowStorageException(
-            context.getString(R.string.workflow_storage_dir_unreadable, workflowDir.absolutePath)
-        )
-        val jsonFiles = files.filter { file ->
-            file.isFile && file.extension == "json"
-        }
-        val jsonFileNames = jsonFiles.map { it.name }.toSet()
-        val backupOnlyFiles = files.mapNotNull { file ->
-            if (!file.isFile || !file.name.endsWith(".json.bak")) {
-                return@mapNotNull null
-            }
-
-            val baseName = file.name.removeSuffix(".bak")
-            if (baseName in jsonFileNames) {
-                null
-            } else {
-                File(workflowDir, baseName)
-            }
-        }
-        return jsonFiles + backupOnlyFiles
-    }
-
     private fun readWorkflowFile(file: File, workflowId: String = file.nameWithoutExtension): Workflow {
-        val content = AtomicFile(file).openRead().use { input ->
-            input.readBytes().toString(Charsets.UTF_8)
-        }
-        val element = json.parseToJsonElement(content)
-        val workflowObject = element as? JsonObject
-            ?: throw WorkflowStorageException(
-                context.getString(R.string.workflow_storage_file_root_invalid, file.name)
-            )
-        val workflowElement = JsonObject(workflowObject + ("id" to JsonPrimitive(workflowId)))
+        val element = json.parseToJsonElement(file.readText())
+        val workflowElement = JsonObject((element as JsonObject) + ("id" to JsonPrimitive(workflowId)))
         return json.decodeFromJsonElement(Workflow.serializer(), workflowElement)
-    }
-
-    private fun writeTextAtomically(file: File, content: String) {
-        val parent = file.parentFile
-            ?: throw WorkflowStorageException(
-                context.getString(R.string.workflow_storage_file_parent_missing, file.absolutePath)
-            )
-        if (!parent.exists() && !parent.mkdirs()) {
-            throw WorkflowStorageException(
-                context.getString(R.string.workflow_storage_dir_unavailable, parent.absolutePath)
-            )
-        }
-
-        val atomicFile = AtomicFile(file)
-        val output = atomicFile.startWrite()
-        try {
-            output.write(content.toByteArray(Charsets.UTF_8))
-            atomicFile.finishWrite(output)
-        } catch (error: Throwable) {
-            atomicFile.failWrite(output)
-            throw error
-        }
-    }
-
-    private suspend fun <T> withWorkflowStoreLock(block: suspend () -> T): T {
-        return workflowStoreMutex.withLock { block() }
     }
 
     private fun getExecutionLogDirectory(workflowId: String, createIfMissing: Boolean = true): File {
@@ -252,7 +159,7 @@ class WorkflowRepository(private val context: Context) {
             val dir = getExecutionLogDirectory(record.workflowId)
             val safeRunId = record.runId.replace(Regex("[^a-zA-Z0-9_-]"), "_")
             val file = File(dir, "${record.startedAt}_$safeRunId.json")
-            writeTextAtomically(file, json.encodeToString(record))
+            file.writeText(json.encodeToString(record))
 
             val allFiles = dir.listFiles { f -> f.isFile && f.extension == "json" }?.toList().orEmpty()
             if (allFiles.size > MAX_EXECUTION_LOG_FILES_PER_WORKFLOW) {
@@ -276,32 +183,17 @@ class WorkflowRepository(private val context: Context) {
      */
     suspend fun getAllWorkflows(): Result<List<Workflow>> = withContext(Dispatchers.IO) {
         try {
-            val workflows = withWorkflowStoreLock {
-                val workflowDir = getWorkflowDirectory()
-                val workflowFiles = listWorkflowFiles(workflowDir)
-                val invalidFileNames = mutableListOf<String>()
-                val loadedWorkflows = workflowFiles.mapNotNull { file ->
-                    try {
-                        readWorkflowFile(file)
-                    } catch (e: Exception) {
-                        invalidFileNames += file.name
-                        AppLogger.e(TAG, "Failed to parse workflow file: ${file.name}", e)
-                        null
-                    }
+            val workflowDir = getWorkflowDirectory()
+            val workflows = workflowDir.listFiles { file ->
+                file.isFile && file.extension == "json"
+            }?.mapNotNull { file ->
+                try {
+                    readWorkflowFile(file)
+                } catch (e: Exception) {
+                    AppLogger.e(TAG, "Failed to parse workflow file: ${file.name}", e)
+                    null
                 }
-
-                if (invalidFileNames.isNotEmpty()) {
-                    workflowStorageWarnings.tryEmit(
-                        context.getString(
-                            R.string.workflow_storage_invalid_files,
-                            invalidFileNames.size,
-                            invalidFileNames.joinToString(", ")
-                        )
-                    )
-                }
-
-                loadedWorkflows.sortedByDescending { it.updatedAt }
-            }
+            }?.sortedByDescending { it.updatedAt } ?: emptyList()
             
             Result.success(workflows)
         } catch (e: Exception) {
@@ -315,21 +207,12 @@ class WorkflowRepository(private val context: Context) {
      */
     suspend fun getWorkflowById(id: String): Result<Workflow?> = withContext(Dispatchers.IO) {
         try {
-            val workflow = withWorkflowStoreLock {
-                val file = getWorkflowFile(id)
-                if (!hasAtomicReadableFile(file)) {
-                    return@withWorkflowStoreLock null
-                }
-
-                try {
-                    readWorkflowFile(file, id)
-                } catch (e: Exception) {
-                    throw WorkflowStorageException(
-                        context.getString(R.string.workflow_storage_single_file_invalid, file.name),
-                        e
-                    )
-                }
+            val file = getWorkflowFile(id)
+            if (!file.exists()) {
+                return@withContext Result.success(null)
             }
+            
+            val workflow = readWorkflowFile(file, id)
             Result.success(workflow)
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed to get workflow by id: $id", e)
@@ -363,11 +246,9 @@ class WorkflowRepository(private val context: Context) {
     suspend fun createWorkflow(workflow: Workflow): Result<Workflow> = withContext(Dispatchers.IO) {
         try {
             require(workflow.id.isNotBlank()) { "Workflow id cannot be empty" }
-            withWorkflowStoreLock {
-                val file = getWorkflowFile(workflow.id)
-                val content = json.encodeToString(workflow)
-                writeTextAtomically(file, content)
-            }
+            val file = getWorkflowFile(workflow.id)
+            val content = json.encodeToString(workflow)
+            file.writeText(content)
             
             AppLogger.d(TAG, "Workflow created: ${workflow.id}")
             
@@ -392,11 +273,9 @@ class WorkflowRepository(private val context: Context) {
         try {
             require(workflow.id.isNotBlank()) { "Workflow id cannot be empty" }
             val updatedWorkflow = workflow.copy(updatedAt = System.currentTimeMillis())
-            withWorkflowStoreLock {
-                val file = getWorkflowFile(updatedWorkflow.id)
-                val content = json.encodeToString(updatedWorkflow)
-                writeTextAtomically(file, content)
-            }
+            val file = getWorkflowFile(updatedWorkflow.id)
+            val content = json.encodeToString(updatedWorkflow)
+            file.writeText(content)
             
             AppLogger.d(TAG, "Workflow updated: ${updatedWorkflow.id}")
             
@@ -471,19 +350,15 @@ class WorkflowRepository(private val context: Context) {
     suspend fun setWorkflowEnabled(id: String, enabled: Boolean): Result<Workflow> = withContext(Dispatchers.IO) {
         try {
             require(id.isNotBlank()) { "Workflow id cannot be empty" }
-            val updatedWorkflow = withWorkflowStoreLock {
-                val file = getWorkflowFile(id)
-                if (!hasAtomicReadableFile(file)) {
-                    return@withWorkflowStoreLock null
-                }
-
-                val workflow = readWorkflowFile(file, id)
-                val nextWorkflow = workflow.copy(enabled = enabled)
-                val content = json.encodeToString(nextWorkflow)
-                writeTextAtomically(file, content)
-                nextWorkflow
+            val file = getWorkflowFile(id)
+            if (!file.exists()) {
+                return@withContext Result.failure(Exception(context.getString(R.string.workflow_not_found)))
             }
-                ?: return@withContext Result.failure(Exception(context.getString(R.string.workflow_not_found)))
+
+            val workflow = readWorkflowFile(file, id)
+            val updatedWorkflow = workflow.copy(enabled = enabled)
+            val content = json.encodeToString(updatedWorkflow)
+            file.writeText(content)
 
             AppLogger.d(TAG, "Workflow enabled state updated: ${updatedWorkflow.id} -> $enabled")
 
@@ -509,28 +384,19 @@ class WorkflowRepository(private val context: Context) {
         try {
             // Cancel schedule first
             unscheduleWorkflow(id)
+            
+            val file = getWorkflowFile(id)
+            val deleted = if (file.exists()) {
+                file.delete()
+            } else {
+                false
+            }
 
-            val deleted = withWorkflowStoreLock {
-                val file = getWorkflowFile(id)
-                val backupFile = getAtomicBackupFile(file)
-                val baseDeleted = if (file.exists()) {
-                    file.delete()
-                } else {
-                    false
+            runCatching {
+                val logDir = getExecutionLogDirectory(id, createIfMissing = false)
+                if (logDir.exists()) {
+                    logDir.deleteRecursively()
                 }
-                val backupDeleted = if (backupFile.exists()) {
-                    backupFile.delete()
-                } else {
-                    false
-                }
-
-                runCatching {
-                    val logDir = getExecutionLogDirectory(id, createIfMissing = false)
-                    if (logDir.exists()) {
-                        logDir.deleteRecursively()
-                    }
-                }
-                baseDeleted || backupDeleted
             }
             
             AppLogger.d(TAG, "Workflow deleted: $id, success: $deleted")
@@ -690,20 +556,17 @@ class WorkflowRepository(private val context: Context) {
         executionTime: Long
     ) = withContext(Dispatchers.IO) {
         try {
-            withWorkflowStoreLock {
-                val file = getWorkflowFile(id)
-                if (!hasAtomicReadableFile(file)) {
-                    return@withWorkflowStoreLock
-                }
-
-                val workflow = readWorkflowFile(file, id)
-                val updatedWorkflow = workflow.copy(
-                    lastExecutionStatus = status,
-                    lastExecutionTime = executionTime
-                )
-                val content = json.encodeToString(updatedWorkflow)
-                writeTextAtomically(file, content)
-            }
+            val workflowResult = getWorkflowById(id)
+            val workflow = workflowResult.getOrNull() ?: return@withContext
+            
+            val updatedWorkflow = workflow.copy(
+                lastExecutionStatus = status,
+                lastExecutionTime = executionTime
+            )
+            
+            val file = getWorkflowFile(id)
+            val content = json.encodeToString(updatedWorkflow)
+            file.writeText(content)
             
             AppLogger.d(TAG, "Workflow execution status updated: $id -> $status")
             notifyWorkflowsChanged()
@@ -721,32 +584,28 @@ class WorkflowRepository(private val context: Context) {
         executionTime: Long
     ) = withContext(Dispatchers.IO) {
         try {
-            val updatedWorkflow = withWorkflowStoreLock {
-                val file = getWorkflowFile(id)
-                if (!hasAtomicReadableFile(file)) {
-                    return@withWorkflowStoreLock null
+            val workflowResult = getWorkflowById(id)
+            val workflow = workflowResult.getOrNull() ?: return@withContext
+            
+            val updatedWorkflow = workflow.copy(
+                lastExecutionStatus = status,
+                lastExecutionTime = executionTime,
+                totalExecutions = workflow.totalExecutions + 1,
+                successfulExecutions = if (status == ExecutionStatus.SUCCESS) {
+                    workflow.successfulExecutions + 1
+                } else {
+                    workflow.successfulExecutions
+                },
+                failedExecutions = if (status == ExecutionStatus.FAILED) {
+                    workflow.failedExecutions + 1
+                } else {
+                    workflow.failedExecutions
                 }
-
-                val workflow = readWorkflowFile(file, id)
-                val nextWorkflow = workflow.copy(
-                    lastExecutionStatus = status,
-                    lastExecutionTime = executionTime,
-                    totalExecutions = workflow.totalExecutions + 1,
-                    successfulExecutions = if (status == ExecutionStatus.SUCCESS) {
-                        workflow.successfulExecutions + 1
-                    } else {
-                        workflow.successfulExecutions
-                    },
-                    failedExecutions = if (status == ExecutionStatus.FAILED) {
-                        workflow.failedExecutions + 1
-                    } else {
-                        workflow.failedExecutions
-                    }
-                )
-                val content = json.encodeToString(nextWorkflow)
-                writeTextAtomically(file, content)
-                nextWorkflow
-            } ?: return@withContext
+            )
+            
+            val file = getWorkflowFile(id)
+            val content = json.encodeToString(updatedWorkflow)
+            file.writeText(content)
             
             AppLogger.d(TAG, "Workflow execution statistics updated: $id (total: ${updatedWorkflow.totalExecutions}, success: ${updatedWorkflow.successfulExecutions})")
             notifyWorkflowsChanged()

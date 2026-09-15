@@ -310,10 +310,6 @@ internal class PackageManagerToolPkgFacade(
             description = container.description.resolve(localizationContext),
             version = container.version,
             author = container.author,
-            logoResourceKey = container.logoResource?.key,
-            logoMimeType = container.logoResource?.mime,
-            apiVersion = container.apiVersion,
-            requires = container.requires,
             resourceCount = container.resources.size,
             wasmModuleCount = wasmModules.size,
             workflowTemplateCount = workflowTemplates.size,
@@ -997,8 +993,7 @@ internal class PackageManagerToolPkgFacade(
                 params = params,
                 onIntermediateResult = onIntermediateResult,
                 dispatchIntermediateOnMain = dispatchIntermediateOnMain,
-                timeoutMillis = timeoutMillis,
-                toolPkgApiVersion = runtime.apiVersion
+                timeoutMillis = timeoutMillis
             )
             if (shouldLogTiming) {
                 logMessageTiming(

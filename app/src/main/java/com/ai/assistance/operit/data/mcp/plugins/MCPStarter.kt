@@ -455,12 +455,7 @@ class MCPStarter(private val context: Context) {
                                     totalPluginsToProcess
                                 )
 
-                                processPlugin(
-                                    pluginId,
-                                    serviceName,
-                                    mcpRepository,
-                                    progressListener
-                                )
+                                processPlugin(pluginId, serviceName, progressListener)
                             }
 
                             synchronized(allVerificationResults) {
@@ -486,6 +481,7 @@ class MCPStarter(private val context: Context) {
 
                 val successfulResults = allVerificationResults.filter { it.isResponding }
                 if (successfulResults.isNotEmpty()) {
+                    registerToolsForVerifiedPlugins(successfulResults)
                     generateMissingDescriptions(successfulResults)
                 }
 
@@ -508,7 +504,6 @@ class MCPStarter(private val context: Context) {
     private suspend fun processPlugin(
         pluginId: String,
         serviceName: String,
-        mcpRepository: MCPRepository,
         progressListener: PluginStartProgressListener
     ): VerificationResult {
         val mcpLocalServer = MCPLocalServer.getInstance(context)
@@ -527,11 +522,6 @@ class MCPStarter(private val context: Context) {
         if (!mcpLocalServer.hasValidToolCache(pluginId)) {
             cacheToolsFromService(pluginId)
         }
-
-        // Register while this plugin is known to be up. Registering the whole batch after the
-        // fan-out means a stalled or failing plugin keeps every other plugin, remote ones
-        // included, out of the AI tool list.
-        mcpRepository.registerToolsForPlugin(pluginId)
 
         return VerificationResult(
             pluginId = pluginId,

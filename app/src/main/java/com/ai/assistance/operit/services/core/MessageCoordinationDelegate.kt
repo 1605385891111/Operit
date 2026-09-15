@@ -12,7 +12,6 @@ import com.ai.assistance.operit.api.chat.enhance.MultiServiceManager
 import com.ai.assistance.operit.api.chat.llmprovider.AIService
 import com.ai.assistance.operit.data.model.ModelParameter
 import com.ai.assistance.operit.data.model.CharacterCard
-import com.ai.assistance.operit.data.model.ConversationSummaryConfig
 import com.ai.assistance.operit.data.model.FunctionType
 import com.ai.assistance.operit.data.model.PromptFunctionType
 import com.ai.assistance.operit.data.model.ChatMessage
@@ -1087,7 +1086,7 @@ class MessageCoordinationDelegate(
                 modelParameters = modelParameters,
                 enableThinking = false,
                 stream = false,
-                preserveThinkInHistory = false,
+                preserveThinkInHistory = false
             )
             stream.collect { chunk -> contentBuilder.append(chunk) }
         }.onFailure {
@@ -1202,7 +1201,7 @@ class MessageCoordinationDelegate(
         members: List<com.ai.assistance.operit.data.model.GroupMemberConfig>,
         memberCardsById: Map<String, CharacterCard>
     ): String {
-        val useEnglish = !LocaleUtils.usesChineseContent(context)
+        val useEnglish = LocaleUtils.getCurrentLanguage(context).lowercase().startsWith("en")
         val userName = displayPreferencesManager.globalUserName.first()?.trim().orEmpty()
         val formattedUserName = if (userName.isNotBlank()) {
             "$userName（用户）"
@@ -1807,14 +1806,14 @@ class MessageCoordinationDelegate(
                 val currentChat = chatHistoryDelegate.chatHistories.value.firstOrNull { it.id == originalChatId }
                 val isGroupChat = currentChat?.characterGroupId != null
 
-                val summaryConfig = readSummaryConfig()
+                val summaryCustomRules = readSummaryCustomRules()
                 val summaryMessage = AIMessageManager.summarizeMemory(
                     enhancedAiService = service,
                     messages = snapshotMessages,
                     chatId = originalChatId,
                     autoContinue = false,
                     isGroupChat = isGroupChat,
-                    summaryConfig = summaryConfig
+                    summaryCustomRules = summaryCustomRules
                 ) ?: return@launch
 
                 val currentChatId = chatHistoryDelegate.currentChatId.value
@@ -1845,7 +1844,7 @@ class MessageCoordinationDelegate(
                             chatId = originalChatId,
                             messages = snapshotMessages,
                             characterCardIds = groupMemberIds,
-                            summaryConfig = summaryConfig
+                            summaryCustomRules = summaryCustomRules
                         )
                     }.onFailure { error ->
                         AppLogger.e(TAG, "角色独立记忆总结失败: ${error.message}", error)
@@ -1953,16 +1952,9 @@ class MessageCoordinationDelegate(
                 summaryInsertReferenceMessages.getOrNull(insertPosition - 1)?.timestamp
             val afterTimestamp =
                 summaryInsertReferenceMessages.getOrNull(insertPosition)?.timestamp
-            val summaryConfig = readSummaryConfig()
+            val summaryCustomRules = readSummaryCustomRules()
             val summaryMessage =
-                AIMessageManager.summarizeMemory(
-                    service,
-                    currentMessages,
-                    requireNotNull(currentChatId),
-                    autoContinue,
-                    effectiveIsGroupChat,
-                    summaryConfig
-                )
+                AIMessageManager.summarizeMemory(service, currentMessages, requireNotNull(currentChatId), autoContinue, effectiveIsGroupChat, summaryCustomRules)
 
             if (summaryMessage != null) {
                 chatHistoryDelegate.addSummaryMessage(
@@ -1983,7 +1975,7 @@ class MessageCoordinationDelegate(
                             chatId = currentChatId,
                             messages = currentMessages,
                             characterCardIds = groupMemberIds,
-                            summaryConfig = summaryConfig
+                            summaryCustomRules = summaryCustomRules
                         )
                     }.onFailure { error ->
                         AppLogger.e(TAG, "角色独立记忆总结失败: ${error.message}", error)
@@ -2085,12 +2077,7 @@ class MessageCoordinationDelegate(
         return summarySuccess
     }
 
-    fun setUiBridge(uiBridge: ChatServiceUiBridge) {
-        this.uiBridge = uiBridge
-    }
-
-    /** 从当前聊天绑定的模型配置中读取总结配置。 */
-    /**
+/**
      * 手动「插入总结」之后，同样为"被禁用过的角色"维护独立记忆链。
      * 自动总结有两条入口会调用 generateRoleScopedSummaries，手动总结这条以前漏了——
      * 结果只用手动总结的用户，被禁角色永远不会生成自己的专属总结。
@@ -2098,7 +2085,7 @@ class MessageCoordinationDelegate(
     suspend fun generateRoleScopedSummariesForChat(
         enhancedAiService: EnhancedAIService,
         chatId: String,
-        summaryConfig: ConversationSummaryConfig
+        summaryCustomRules: String? = null
     ) {
         val groupMemberIds =
             resolveTargetGroupForChat(chatId)
@@ -2114,7 +2101,7 @@ class MessageCoordinationDelegate(
                     chatId = chatId,
                     messages = messages,
                     characterCardIds = groupMemberIds,
-                    summaryConfig = summaryConfig
+                    summaryCustomRules = summaryCustomRules
                 )
             }
             .onFailure { error ->
@@ -2122,26 +2109,28 @@ class MessageCoordinationDelegate(
             }
     }
 
-    suspend fun readSummaryConfig(): ConversationSummaryConfig {
+    fun setUiBridge(uiBridge: ChatServiceUiBridge) {
+        this.uiBridge = uiBridge
+    }
+
+    /** 从当前聊天绑定的模型配置中读取自定义总结规则 */
+    suspend fun readSummaryCustomRules(): String? {
         return try {
             val functionalConfigManager = FunctionalConfigManager(context)
             val modelConfigManager = ModelConfigManager(context)
+            functionalConfigManager.initializeIfNeeded()
+            modelConfigManager.initializeIfNeeded()
             val functionMappings = functionalConfigManager.functionConfigMappingWithIndexFlow.first()
             val chatMapping = functionMappings[FunctionType.CHAT] ?: FunctionConfigMapping()
             if (chatMapping.configId.isNotBlank()) {
                 val config = modelConfigManager.getModelConfigFlow(chatMapping.configId).first()
-                ConversationSummaryConfig(
-                    globalRules = config.summaryCustomRules.takeIf { it.isNotBlank() },
-                    sectionOverrides = config.summarySectionOverrides,
-                    dialogueReviewEnabled = config.enableSummaryDialogueReview,
-                    dialogueReviewTitle = config.summaryDialogueReviewTitle
-                )
+                config.summaryCustomRules.takeIf { it.isNotBlank() }
             } else {
-                ConversationSummaryConfig()
+                null
             }
         } catch (e: Exception) {
-            AppLogger.w(TAG, "读取总结配置失败", e)
-            ConversationSummaryConfig()
+            AppLogger.w(TAG, "读取自定义总结规则失败", e)
+            null
         }
     }
 }

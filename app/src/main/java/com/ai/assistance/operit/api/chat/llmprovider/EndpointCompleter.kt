@@ -87,10 +87,6 @@ object EndpointCompleter {
                 return completeResponsesEndpoint(endpoint)
             }
 
-            ApiProviderType.OPENAI_CODEX -> {
-                return endpoint
-            }
-
             ApiProviderType.ANTHROPIC,
             ApiProviderType.ANTHROPIC_GENERIC -> {
                 try {
@@ -117,7 +113,6 @@ object EndpointCompleter {
 
             ApiProviderType.GOOGLE,
             ApiProviderType.GEMINI_GENERIC,
-            ApiProviderType.OPENCODE,
             ApiProviderType.MNN -> {
                 return endpoint
             }

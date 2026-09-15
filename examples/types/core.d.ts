@@ -108,9 +108,21 @@ export namespace NativeInterface {
      * @param toolName - Tool name
      * @param paramsJson - Parameters as JSON string
      * The callback will receive a ToolResult object
-    */
+     */
     function callToolAsync(callbackId: string, toolType: string, toolName: string, paramsJson: string): void;
     function callToolAsyncStreaming(callbackId: string, intermediateCallbackId: string, toolType: string, toolName: string, paramsJson: string): void;
+
+    /**
+     * Set the result of script execution
+     * @param result - Result string
+     */
+    function setResult(result: string): void;
+
+    /**
+     * Set an error for script execution
+     * @param error - Error message
+     */
+    function setError(error: string): void;
 
     /**
      * Log informational message
@@ -178,20 +190,6 @@ export namespace NativeInterface {
      * @param specJson - JSON object string describing a chat message hook
      */
     function registerToolPkgChatMessageHook(specJson: string): void;
-
-    /**
-     * Register a chat message long-press menu item for current toolpkg main registration session.
-     * @param specJson - JSON object string describing a chat message menu item
-     * @since ToolPkg API 1.0.1
-     */
-    function registerToolPkgChatMessageMenuItem(specJson: string): void;
-
-    /**
-     * Register a chat runtime hook for current toolpkg main registration session.
-     * @param specJson - JSON object string describing a chat runtime hook
-     * @since ToolPkg API 1.0.1
-     */
-    function registerToolPkgChatRuntimeHook(specJson: string): void;
 
     /**
      * Register an image from base64-encoded data into the global image pool

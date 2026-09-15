@@ -397,8 +397,8 @@ android {
         applicationId = "com.ai.assistance.operit"
         minSdk = 26
         targetSdk = 34
-        versionCode = 49
-        versionName = "1.12.1+6"
+        versionCode = 46
+        versionName = "1.12.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -406,7 +406,9 @@ android {
         }
         
         ndk {
-            // Keep native compilation aligned with the app's only supported ABI.
+            // Explicitly specify the ABIs we package for the app process.
+            // terminal now also ships x86_64 runtime binaries for the Android Studio emulator,
+            // while the rest of the app remains primarily ARM-focused.
             abiFilters.addAll(listOf("arm64-v8a"))
         }
 
@@ -757,15 +759,9 @@ dependencies {
 
     // Test dependencies
     testImplementation(libs.junit)
-    // JVM tests need a real implementation because Android's org.json methods are throwing stubs.
-    testImplementation(libs.json.jvm)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.compose.bom))
-
-    // 单元测试中真实 org.json（Android 桩在 JVM 测试里会抛 Stub! 异常）；
-    // 统计 usage 归一化测试需要解析 JSONObject。
-    testImplementation("org.json:json:20240303")
 
     // Apache POI - for Document processing (DOC, DOCX, etc.)
     implementation(libs.poi)

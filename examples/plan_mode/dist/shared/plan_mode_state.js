@@ -4,9 +4,6 @@ exports.readPlanModeStateSnapshot = readPlanModeStateSnapshot;
 exports.readPlanModeStateAsync = readPlanModeStateAsync;
 exports.isPlanModeEnabledInState = isPlanModeEnabledInState;
 exports.setPlanModeEnabledForChatAsync = setPlanModeEnabledForChatAsync;
-exports.isPlanStartRecorded = isPlanStartRecorded;
-exports.recordPlanStart = recordPlanStart;
-exports.forgetPlanStart = forgetPlanStart;
 exports.readActiveChatViewForRuntime = readActiveChatViewForRuntime;
 exports.readTrackedChatViewByChatId = readTrackedChatViewByChatId;
 exports.readSingleActiveChatView = readSingleActiveChatView;
@@ -14,7 +11,6 @@ exports.upsertTrackedChatViewAsync = upsertTrackedChatViewAsync;
 exports.removeTrackedChatViewAsync = removeTrackedChatViewAsync;
 const state = {
     enabledChatIds: {},
-    startedPlanKeys: {},
     trackedViewsByChatId: {},
 };
 function cloneTrackedChatView(view) {
@@ -38,7 +34,6 @@ function cloneTrackedViewsByChatId() {
 function readPlanModeStateSnapshot() {
     return {
         enabledChatIds: { ...state.enabledChatIds },
-        startedPlanKeys: { ...state.startedPlanKeys },
         trackedViewsByChatId: cloneTrackedViewsByChatId(),
     };
 }
@@ -54,15 +49,6 @@ async function setPlanModeEnabledForChatAsync(chatId, enabled) {
         return;
     }
     delete state.enabledChatIds[chatId];
-}
-function isPlanStartRecorded(planKey) {
-    return state.startedPlanKeys[planKey] === true;
-}
-function recordPlanStart(planKey) {
-    state.startedPlanKeys[planKey] = true;
-}
-function forgetPlanStart(planKey) {
-    delete state.startedPlanKeys[planKey];
 }
 function readActiveChatViewForRuntime(runtime) {
     const view = Object.values(state.trackedViewsByChatId).find((item) => item.runtime === runtime);

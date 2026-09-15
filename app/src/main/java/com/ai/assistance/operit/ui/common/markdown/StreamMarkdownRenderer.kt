@@ -60,7 +60,6 @@ import com.ai.assistance.operit.util.markdown.MarkdownProcessorType
 import com.ai.assistance.operit.util.markdown.SmartString
 import com.ai.assistance.operit.util.stream.Stream
 import com.ai.assistance.operit.util.stream.StreamInterceptor
-import com.ai.assistance.operit.util.stream.StreamRollbackPrefix
 import com.ai.assistance.operit.util.stream.share
 import com.ai.assistance.operit.util.stream.splitBy as streamSplitBy
 import com.ai.assistance.operit.util.stream.stream
@@ -167,29 +166,6 @@ private fun canMergeWithHtmlBreak(node: MarkdownNode?): Boolean {
     return node?.type == MarkdownProcessorType.PLAIN_TEXT
 }
 
-private fun replaceRollbackTail(
-    nodes: SnapshotStateList<MarkdownNode>,
-    rollbackNodes: List<MarkdownNode>,
-    xmlNodeStreams: MutableMap<Int, Stream<String>>,
-) {
-    var sharedPrefixSize = 0
-    val comparisonLimit = minOf(nodes.size, rollbackNodes.size)
-    while (
-        sharedPrefixSize < comparisonLimit &&
-            nodes[sharedPrefixSize].toStableNode() == rollbackNodes[sharedPrefixSize].toStableNode()
-    ) {
-        sharedPrefixSize++
-    }
-
-    while (nodes.size > sharedPrefixSize) {
-        nodes.removeAt(nodes.lastIndex)
-    }
-    nodes.addAll(rollbackNodes.drop(sharedPrefixSize))
-    xmlNodeStreams.keys
-        .filter { it >= sharedPrefixSize }
-        .forEach { xmlNodeStreams.remove(it) }
-}
-
 private fun appendHtmlBreakNode(
     nodes: SnapshotStateList<MarkdownNode>,
     count: Int = 1,
@@ -223,13 +199,25 @@ internal fun MarkdownNode.toStableNode(): MarkdownNodeStable {
 private fun areRenderNodesSynchronized(
     nodes: SnapshotStateList<MarkdownNode>,
     renderNodes: SnapshotStateList<MarkdownNodeStable>,
+    conversionCache: MutableMap<Int, Pair<Int, MarkdownNodeStable>>,
 ): Boolean {
     if (nodes.isEmpty() || nodes.size != renderNodes.size) {
         return false
     }
 
     nodes.forEachIndexed { index, sourceNode ->
-        val stableNode = sourceNode.toStableNode()
+        val contentLength = sourceNode.content.length
+        val cached = conversionCache[index]
+        val freshStableNode = sourceNode.toStableNode()
+        val stableNode =
+            if (cached != null && cached.first == contentLength && cached.second == freshStableNode) {
+                cached.second
+            } else {
+                freshStableNode.also {
+                    conversionCache[index] = contentLength to it
+                }
+            }
+
         if (renderNodes[index] != stableNode) {
             return false
         }
@@ -332,6 +320,8 @@ class StreamMarkdownRendererState {
     val renderNodes = mutableStateListOf<MarkdownNodeStable>()
     // 节点动画状态映射表
     val nodeAnimationStates = mutableStateMapOf<String, Boolean>()
+    // 缓存转换后的稳定节点，避免不必要的对象创建
+    val conversionCache = mutableStateMapOf<Int, Pair<Int, MarkdownNodeStable>>()
     // 保存流式渲染收集的完整内容，用于切换时判断是否需要重新解析
     val collectedContent = SmartString()
     // XML 节点对应的子流（仅流式渲染有效）
@@ -356,23 +346,10 @@ class StreamMarkdownRendererState {
         nodes.clear()
         renderNodes.clear()
         nodeAnimationStates.clear()
+        conversionCache.clear()
         collectedContent.clear()
         xmlNodeStreams.clear()
         streamParsingCompletedSuccessfully = false
-    }
-}
-
-private fun StreamMarkdownRendererState.replaceStaticNodes(
-    rendererId: String,
-    parsedNodes: List<MarkdownNode>
-) {
-    nodes.clear()
-    nodes.addAll(parsedNodes)
-    renderNodes.clear()
-    renderNodes.addAll(parsedNodes.map { it.toStableNode() })
-    nodeAnimationStates.clear()
-    parsedNodes.forEachIndexed { index, _ ->
-        nodeAnimationStates["static-node-$rendererId-$index"] = true
     }
 }
 
@@ -402,12 +379,14 @@ fun StreamMarkdownRenderer(
     val nodeAnimationStates = rendererState.nodeAnimationStates
     // 用于在`finally`块中启动协程
     val scope = rememberCoroutineScope()
+    // 缓存转换后的稳定节点，避免不必要的对象创建
+    val conversionCache = rendererState.conversionCache
     // XML 节点子流映射
     val xmlNodeStreams = rendererState.xmlNodeStreams
 
-    // A rollback replaces the transport stream, not the message renderer that owns the prefix.
-    val rendererId = remember(rendererState) {
-        val id = "renderer-${System.identityHashCode(rendererState)}"
+    // 当流实例变化时，获得一个稳定的渲染器ID
+    val rendererId = remember(markdownStream) { 
+        val id = "renderer-${System.identityHashCode(markdownStream)}"
         rendererState.updateRendererId(id)
         id
     }
@@ -417,14 +396,13 @@ fun StreamMarkdownRenderer(
             BatchNodeUpdater(
                 nodes = nodes,
                 renderNodes = renderNodes,
+                conversionCache = conversionCache,
                 nodeAnimationStates = nodeAnimationStates,
                 xmlNodeStreams = xmlNodeStreams,
                 rendererId = rendererId,
                 scope = scope,
             )
-    }
-
-    val rollbackPrefix = (markdownStream as? StreamRollbackPrefix)?.rollbackPrefix
+        }
 
     // 创建一个中间流，用于拦截和批处理渲染更新
     val interceptedStream =
@@ -451,44 +429,17 @@ fun StreamMarkdownRenderer(
     LaunchedEffect(interceptedStream) {
         // 移除时间计算变量和日志
 
-        if (rollbackPrefix == null) {
-            nodes.clear()
-            renderNodes.clear()
-            rendererState.collectedContent.clear()
-            xmlNodeStreams.clear()
-            rendererState.streamParsingCompletedSuccessfully = false
-        } else {
-            val rollbackNodes =
-                withContext(Dispatchers.Default) {
-                    parseMarkdownToNodes(rollbackPrefix)
-                }
-            // Keep nodes that still match the prefix so only the revoked tail is redrawn.
-            replaceRollbackTail(
-                nodes = nodes,
-                rollbackNodes = rollbackNodes,
-                xmlNodeStreams = xmlNodeStreams,
-            )
-            rendererState.collectedContent.replace(rollbackPrefix)
-            rendererState.streamParsingCompletedSuccessfully = false
-            synchronizeRenderNodes(
-                nodes,
-                renderNodes,
-                nodeAnimationStates,
-                xmlNodeStreams,
-                rendererId,
-                scope,
-            )
-        }
+        // 重置状态
+        nodes.clear()
+        renderNodes.clear()
+        conversionCache.clear()
+        rendererState.collectedContent.clear()
+        xmlNodeStreams.clear()
+        rendererState.streamParsingCompletedSuccessfully = false
 
         try {
             var pendingHtmlBreakCount = 0
-            interceptedStream
-                .nativeMarkdownSplitByBlock(
-                    flushIntervalMs = RENDER_INTERVAL_MS,
-                    maxDeltaChars = null,
-                    initialContent = rollbackPrefix ?: "",
-                )
-                .collect { blockGroup ->
+            interceptedStream.nativeMarkdownSplitByBlock(flushIntervalMs = RENDER_INTERVAL_MS).collect { blockGroup ->
                 val blockType = blockGroup.tag ?: MarkdownProcessorType.PLAIN_TEXT
 
                 if (blockType == MarkdownProcessorType.HTML_BREAK) {
@@ -522,15 +473,10 @@ fun StreamMarkdownRenderer(
                         tempBlockType != MarkdownProcessorType.TABLE &&
                         tempBlockType != MarkdownProcessorType.XML_BLOCK
 
-                val rollbackContinuesCurrentBlock =
-                    rollbackPrefix != null &&
-                        pendingHtmlBreakCount == 0 &&
-                        nodes.lastOrNull()?.type == tempBlockType
                 val mergeWithPrevious =
-                    (pendingHtmlBreakCount > 0 &&
+                    pendingHtmlBreakCount > 0 &&
                         tempBlockType == MarkdownProcessorType.PLAIN_TEXT &&
-                        canMergeWithHtmlBreak(nodes.lastOrNull())) ||
-                        rollbackContinuesCurrentBlock
+                        canMergeWithHtmlBreak(nodes.lastOrNull())
 
                 if (pendingHtmlBreakCount > 0 && !mergeWithPrevious) {
                     appendHtmlBreakNode(nodes, pendingHtmlBreakCount)
@@ -563,14 +509,7 @@ fun StreamMarkdownRenderer(
                 if (isInlineContainer) {
                     var pendingLineBreakState = PendingLineBreakState(count = pendingHtmlBreakCount)
 
-                    blockStream
-                        .nativeMarkdownSplitByInline(
-                            flushIntervalMs = RENDER_INTERVAL_MS,
-                            maxDeltaChars = null,
-                            initialContent =
-                                if (rollbackContinuesCurrentBlock) newNode.content.toString() else "",
-                        )
-                        .collect { inlineGroup ->
+                    blockStream.nativeMarkdownSplitByInline(flushIntervalMs = RENDER_INTERVAL_MS).collect { inlineGroup ->
                         val originalInlineType = inlineGroup.tag ?: MarkdownProcessorType.PLAIN_TEXT
                         val isInlineLatex = originalInlineType == MarkdownProcessorType.INLINE_LATEX
                         val tempInlineType =
@@ -610,7 +549,7 @@ fun StreamMarkdownRenderer(
                             val childIndex = newNode.children.lastIndexOf(childNode)
                             if (childIndex != -1) {
                                 newNode.children[childIndex] = latexChildNode
-                                batchUpdater.requestStructuralUpdate()
+                                batchUpdater.requestStructuralUpdate(nodeIndex)
                             }
                         }
 
@@ -621,7 +560,7 @@ fun StreamMarkdownRenderer(
                             val lastIndex = newNode.children.lastIndex
                             if (lastIndex >= 0 && newNode.children[lastIndex] == childNode) {
                                 newNode.children.removeAt(lastIndex)
-                                batchUpdater.requestStructuralUpdate()
+                                batchUpdater.requestStructuralUpdate(nodeIndex)
                             }
                         }
                     }
@@ -636,7 +575,7 @@ fun StreamMarkdownRenderer(
                     val latexNode =
                         MarkdownNode(type = MarkdownProcessorType.BLOCK_LATEX, initialContent = latexContent)
                     nodes[nodeIndex] = latexNode
-                    batchUpdater.requestStructuralUpdate()
+                    batchUpdater.requestStructuralUpdate(nodeIndex)
                 }
 
                 pendingHtmlBreakCount = 0
@@ -653,6 +592,7 @@ fun StreamMarkdownRenderer(
             synchronizeRenderNodes(
                 nodes,
                 renderNodes,
+                conversionCache,
                 nodeAnimationStates,
                 xmlNodeStreams,
                 rendererId,
@@ -885,21 +825,15 @@ fun StreamMarkdownRenderer(
         enableDialogs: Boolean = true,
         fillMaxWidth: Boolean = true,
 ) {
+    // 使用传入的state或创建新的state
+    val rendererState = state ?: remember(content) { StreamMarkdownRendererState() }
+    
     // 使用流式版本相同的渲染器ID生成逻辑
-    val rendererId = remember(content) { "static-renderer-${content.hashCode()}" }
-
-    // 使用传入的state或创建新的state。静态内容完成过解析时，创建组合阶段直接
-    // 带入缓存节点；LazyColumn 首帧用空节点测量会形成 0 高度 item，节点离开活跃组合后
-    // 后台解析结果无法驱动当前可见项重新布局。
-    val rendererState = state ?: remember(content) {
-        StreamMarkdownRendererState().also { newState ->
-            val cachedNodes = MarkdownNodeCache.get(content)
-            if (cachedNodes != null) {
-                newState.replaceStaticNodes(rendererId, cachedNodes)
-            }
-        }
+    val rendererId = remember(content) { 
+        val id = "static-renderer-${content.hashCode()}"
+        rendererState.updateRendererId(id)
+        id
     }
-    rendererState.updateRendererId(rendererId)
 
     // 使用与流式版本相同的节点列表结构
     val nodes = rendererState.nodes
@@ -907,6 +841,8 @@ fun StreamMarkdownRenderer(
     // 添加节点动画状态映射表，与流式版本保持一致
     val nodeAnimationStates = rendererState.nodeAnimationStates
     val scope = rememberCoroutineScope()
+    // 缓存转换后的稳定节点，避免不必要的对象创建
+    val conversionCache = rendererState.conversionCache
     // XML 节点子流映射（静态渲染通常为空）
     val xmlNodeStreams = rendererState.xmlNodeStreams
 
@@ -917,7 +853,7 @@ fun StreamMarkdownRenderer(
         val streamParsingCompleted = rendererState.streamParsingCompletedSuccessfully
         val shouldReuseExistingNodes =
             collectedContentStr == content &&
-                areRenderNodesSynchronized(nodes, renderNodes) &&
+                areRenderNodesSynchronized(nodes, renderNodes, conversionCache) &&
                 streamParsingCompleted
 
         if (shouldReuseExistingNodes) {
@@ -928,11 +864,25 @@ fun StreamMarkdownRenderer(
         }
 
         xmlNodeStreams.clear()
-
+        
+        // 移除时间计算相关变量
         val cachedNodes = MarkdownNodeCache.get(content)
 
         if (cachedNodes != null) {
-            rendererState.replaceStaticNodes(rendererId, cachedNodes)
+            // 移除时间计算相关的日志
+            // 移除时间计算变量
+            nodes.clear()
+            nodes.addAll(cachedNodes)
+            renderNodes.clear()
+            renderNodes.addAll(cachedNodes.map { it.toStableNode() })
+            // 确保动画状态也被设置
+            val newStates = mutableMapOf<String, Boolean>()
+            cachedNodes.forEachIndexed { index, node ->
+                val nodeKey = "static-node-$rendererId-$index"
+                newStates[nodeKey] = true
+            }
+            nodeAnimationStates.putAll(newStates)
+            // 移除应用缓存节点相关时间日志
             return@LaunchedEffect
         }
 
@@ -945,7 +895,25 @@ fun StreamMarkdownRenderer(
                     // 保存到缓存，这样下次渲染同样内容时可以直接使用
                     MarkdownNodeCache.put(content, parsedNodes)
 
-                    rendererState.replaceStaticNodes(rendererId, parsedNodes)
+                    // 更新UI状态
+                    // 清除现有节点
+                    nodes.clear()
+                    // 批量添加所有节点以减少UI重组次数
+                    nodes.addAll(parsedNodes)
+                    renderNodes.clear()
+                    renderNodes.addAll(parsedNodes.map { it.toStableNode() })
+                    // 清理转换缓存，因为内容已完全改变
+                    conversionCache.clear()
+
+                    // 更新所有节点的动画状态为可见
+                    val newStates = mutableMapOf<String, Boolean>()
+                    parsedNodes.forEachIndexed { index, node ->
+                        val nodeKey = "static-node-$rendererId-$index"
+                        newStates[nodeKey] = true
+                    }
+                    nodeAnimationStates.putAll(newStates)
+
+                    // 移除UI更新时间相关日志
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -1131,6 +1099,7 @@ private fun UnifiedMarkdownCanvas(
 internal class BatchNodeUpdater(
         private val nodes: SnapshotStateList<MarkdownNode>,
         private val renderNodes: SnapshotStateList<MarkdownNodeStable>,
+        private val conversionCache: MutableMap<Int, Pair<Int, MarkdownNodeStable>>,
         private val nodeAnimationStates: MutableMap<String, Boolean>,
         private val xmlNodeStreams: MutableMap<Int, Stream<String>>,
         private val rendererId: String,
@@ -1145,8 +1114,9 @@ internal class BatchNodeUpdater(
 
     fun requestUpdate() = coordinator.requestUpdate()
 
-    fun requestStructuralUpdate() {
+    fun requestStructuralUpdate(nodeIndex: Int) {
         // Type and child-list mutations can preserve the parent content length.
+        conversionCache.remove(nodeIndex)
         requestUpdate()
     }
 
@@ -1159,6 +1129,7 @@ internal class BatchNodeUpdater(
         synchronizeRenderNodes(
             nodes,
             renderNodes,
+            conversionCache,
             nodeAnimationStates,
             xmlNodeStreams,
             rendererId,
@@ -1171,6 +1142,7 @@ internal class BatchNodeUpdater(
 private fun synchronizeRenderNodes(
     nodes: SnapshotStateList<MarkdownNode>,
     renderNodes: SnapshotStateList<MarkdownNodeStable>,
+    conversionCache: MutableMap<Int, Pair<Int, MarkdownNodeStable>>,
     nodeAnimationStates: MutableMap<String, Boolean>,
     xmlNodeStreams: MutableMap<Int, Stream<String>>,
     rendererId: String,
@@ -1180,7 +1152,17 @@ private fun synchronizeRenderNodes(
 
     // 1. 更新现有节点并添加新节点
     nodes.forEachIndexed { i, sourceNode ->
-        val stableNode = sourceNode.toStableNode()
+        val contentLength = sourceNode.content.length
+        val cached = conversionCache[i]
+
+        val stableNode = if (cached != null && cached.first == contentLength) {
+            cached.second
+        } else {
+            sourceNode.toStableNode().also {
+                conversionCache[i] = contentLength to it
+            }
+        }
+
         if (i < renderNodes.size) {
             // 如果节点内容发生变化，则更新
             if (renderNodes[i] != stableNode) {
@@ -1201,7 +1183,14 @@ private fun synchronizeRenderNodes(
         renderNodes.removeAt(renderNodes.lastIndex)
     }
 
-    // 3. 清理已被移除节点的 XML 子流
+    // 3. 清理多余的缓存条目
+    if (nodes.size < conversionCache.size) {
+        (nodes.size until conversionCache.size).forEach {
+            conversionCache.remove(it)
+        }
+    }
+
+    // 4. 清理已被移除节点的 XML 子流
     val keysToRemove = xmlNodeStreams.keys.filter { it !in nodes.indices }
     keysToRemove.forEach { xmlNodeStreams.remove(it) }
 

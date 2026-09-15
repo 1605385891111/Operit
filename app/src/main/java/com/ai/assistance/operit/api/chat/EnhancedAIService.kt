@@ -26,6 +26,7 @@ import com.ai.assistance.operit.core.chat.hooks.toRoleContentPairs
 import com.ai.assistance.operit.core.application.ActivityLifecycleManager
 import com.ai.assistance.operit.core.tools.AIToolHandler
 import com.ai.assistance.operit.core.tools.StringResultData
+import com.ai.assistance.operit.core.tools.ToolExecutionLimits
 import com.ai.assistance.operit.core.tools.climode.CliToolModeSupport
 import com.ai.assistance.operit.core.tools.climode.ToolExposureMode
 import com.ai.assistance.operit.core.tools.packTool.PackageManager
@@ -37,7 +38,6 @@ import com.ai.assistance.operit.data.model.ToolResult
 import com.ai.assistance.operit.data.model.ModelConfigData
 import com.ai.assistance.operit.data.model.ModelParameter
 import com.ai.assistance.operit.data.model.AITool
-import com.ai.assistance.operit.data.model.ConversationSummaryConfig
 import com.ai.assistance.operit.data.preferences.ApiPreferences
 import com.ai.assistance.operit.data.preferences.ExternalHttpApiPreferences
 import com.ai.assistance.operit.data.preferences.WakeWordPreferences
@@ -664,35 +664,6 @@ class EnhancedAIService private constructor(private val context: Context) {
         }
     }
 
-    suspend fun callFunctionModel(
-        functionType: FunctionType,
-        turns: List<PromptTurn>,
-        enableThinking: Boolean = false,
-        recordTokenUsage: Boolean = true
-    ): String {
-        ensureInitialized()
-        val serviceForFunction = getAIServiceForFunction(functionType)
-        val modelParameters = getModelParametersForFunction(functionType)
-        val output = StringBuilder()
-
-        serviceForFunction
-            .sendMessage(
-                context = context,
-                chatHistory = turns,
-                modelParameters = modelParameters,
-                enableThinking = enableThinking,
-                stream = false,
-                availableTools = emptyList(),
-                preserveThinkInHistory = true,
-                recordTokenUsage = recordTokenUsage
-            )
-            .collect { chunk ->
-                output.append(chunk)
-            }
-
-        return output.toString()
-    }
-
     private fun publishRequestWindowEstimate(windowSize: Long) {
         _requestWindowEstimate.value = windowSize
     }
@@ -879,6 +850,10 @@ class EnhancedAIService private constructor(private val context: Context) {
             finalProcessedInput = ChatUtils.stripGeminiThoughtSignatureMeta(finalProcessedInput)
             finalPreparedHistory = ChatUtils.stripGeminiThoughtSignatureMetaTurns(finalPreparedHistory)
         }
+        if (!ChatUtils.isOpenAIResponsesProviderModel(serviceForFunction.providerModel)) {
+            finalProcessedInput = ChatUtils.stripOpenAiResponsesReasoningMeta(finalProcessedInput)
+            finalPreparedHistory = ChatUtils.stripOpenAiResponsesReasoningMetaTurns(finalPreparedHistory)
+        }
 
         val requestHistory =
             applyFinalizedCurrentUserTurn(
@@ -970,7 +945,6 @@ class EnhancedAIService private constructor(private val context: Context) {
                 )
             registerExecutionContext(execContext)
             var hadFatalError = false
-            var providerStreamCollectionStarted = false
             try {
                 // 确保所有操作都在IO线程上执行
                 withContext(Dispatchers.IO) {
@@ -1096,6 +1070,10 @@ class EnhancedAIService private constructor(private val context: Context) {
                         finalProcessedInput = ChatUtils.stripGeminiThoughtSignatureMeta(finalProcessedInput)
                         finalPreparedHistory = ChatUtils.stripGeminiThoughtSignatureMetaTurns(finalPreparedHistory)
                     }
+                    if (!ChatUtils.isOpenAIResponsesProviderModel(serviceForFunction.providerModel)) {
+                        finalProcessedInput = ChatUtils.stripOpenAiResponsesReasoningMeta(finalProcessedInput)
+                        finalPreparedHistory = ChatUtils.stripOpenAiResponsesReasoningMetaTurns(finalPreparedHistory)
+                    }
                     val requestHistory =
                         applyFinalizedCurrentUserTurn(
                             preparedHistory = finalPreparedHistory,
@@ -1132,7 +1110,7 @@ class EnhancedAIService private constructor(private val context: Context) {
                                         currentRequestCachedInputTokenCount = cachedInput.coerceAtLeast(0)
                                         _perRequestTokenCounts.value = Pair(input, output)
                                     },
-                                     onNonFatalError = onNonFatalError,
+                                    onNonFatalError = onNonFatalError
                             )
                     val revisableStream = responseStream as? TextStreamEventCarrier
 
@@ -1149,7 +1127,6 @@ class EnhancedAIService private constructor(private val context: Context) {
                     var totalChars = 0
                     var lastLogTime = messageTimingNow()
 
-                    providerStreamCollectionStarted = true
                     coroutineScope {
                         val revisionJob =
                             revisableStream?.let { carrier ->
@@ -1222,7 +1199,6 @@ class EnhancedAIService private constructor(private val context: Context) {
                             revisionJob?.cancelAndJoin()
                         }
                     }
-                    providerStreamCollectionStarted = false
 
                     // Update accumulated token counts and persist them
                     val inputTokens = serviceForFunction.inputTokenCount
@@ -1235,6 +1211,10 @@ class EnhancedAIService private constructor(private val context: Context) {
                     currentRequestInputTokenCount = 0L
                     currentRequestOutputTokenCount = 0L
                     currentRequestCachedInputTokenCount = 0L
+                    apiPreferences.updateTokensForProviderModel(serviceForFunction.providerModel, inputTokens, outputTokens, cachedInputTokens)
+                    
+                    // Update request count
+                    apiPreferences.incrementRequestCountForProviderModel(serviceForFunction.providerModel)
 
                     AppLogger.d(
                             TAG,
@@ -1252,8 +1232,7 @@ class EnhancedAIService private constructor(private val context: Context) {
                 throw e
             } catch (e: Exception) {
                 // 用户取消导致的 Socket closed 是预期行为，不应作为错误处理
-                val isSocketClosed = e.message?.contains("Socket closed", ignoreCase = true) == true
-                if (isSocketClosed) {
+                if (e.message?.contains("Socket closed", ignoreCase = true) == true) {
                     if (isExecutionContextActive(execContext)) {
                         AppLogger.d(TAG, "Stream was cancelled by the user (Socket closed).")
                     } else {
@@ -1263,20 +1242,15 @@ class EnhancedAIService private constructor(private val context: Context) {
                     hadFatalError = true
                     // Handle any exceptions
                     AppLogger.e(TAG, "发送消息时发生错误: ${e.message}", e)
-                    if (!providerStreamCollectionStarted) {
-                        withContext(Dispatchers.Main) {
-                            _inputProcessingState.value =
-                                    InputProcessingState.Error(message = context.getString(R.string.enhanced_error_with_message, e.message ?: ""))
-                        }
+                    withContext(Dispatchers.Main) {
+                        _inputProcessingState.value =
+                                InputProcessingState.Error(message = context.getString(R.string.enhanced_error_with_message, e.message ?: ""))
                     }
                 }
 
                 // 发生无法处理的错误时，也应停止服务，但用户取消除外
-                if (!isSocketClosed) {
+                if (e.message?.contains("Socket closed", ignoreCase = true) != true) {
                     if (!isSubTask) stopAiService()
-                    if (!providerStreamCollectionStarted) {
-                        throw e
-                    }
                 }
             } finally {
                 try {
@@ -1791,9 +1765,8 @@ class EnhancedAIService private constructor(private val context: Context) {
                                         R.string.enhanced_pure_thinking_only_warning
                                 )
                         )
-                val pureThinkingWarningDisplayContent = "\n$pureThinkingWarning"
-                context.roundManager.appendContent(pureThinkingWarningDisplayContent)
-                collector.emit(pureThinkingWarningDisplayContent)
+                context.roundManager.appendContent("\n$pureThinkingWarning")
+                collector.emit(pureThinkingWarning)
                 try {
                     context.conversationHistory.add(
                         PromptTurn(kind = PromptTurnKind.TOOL_RESULT, content = pureThinkingWarning)
@@ -2217,8 +2190,18 @@ class EnhancedAIService private constructor(private val context: Context) {
     ) {
         val startTime = messageTimingNow()
         val toolNames = results.joinToString(", ") { it.toolName }
+        val rawToolResultMessage =
+            toolResultMessageOverride ?: ConversationMarkupManager.buildBoundedToolResultMessage(results)
         val toolResultMessage =
-            toolResultMessageOverride ?: ConversationMarkupManager.buildToolResultMessage(results)
+            if (rawToolResultMessage.length <= ToolExecutionLimits.MAX_FINAL_TOOL_RESULT_MESSAGE_CHARS) {
+                rawToolResultMessage
+            } else {
+                AppLogger.w(
+                    TAG,
+                    "工具结果消息超过最终兜底上限，已静默截断。原长度: ${rawToolResultMessage.length}"
+                )
+                rawToolResultMessage.take(ToolExecutionLimits.MAX_FINAL_TOOL_RESULT_MESSAGE_CHARS)
+            }
 
         if (toolResultMessage.isBlank()) {
             AppLogger.w(TAG, "工具结果消息为空，跳过后续AI请求")
@@ -2347,7 +2330,7 @@ class EnhancedAIService private constructor(private val context: Context) {
                                     currentRequestCachedInputTokenCount = cachedInput.coerceAtLeast(0)
                                     _perRequestTokenCounts.value = Pair(input, output)
                                 },
-                                 onNonFatalError = onNonFatalError,
+                                onNonFatalError = onNonFatalError
                         )
 
                 // 更新状态为接收中
@@ -2442,6 +2425,10 @@ class EnhancedAIService private constructor(private val context: Context) {
                 currentRequestInputTokenCount = 0L
                 currentRequestOutputTokenCount = 0L
                 currentRequestCachedInputTokenCount = 0L
+                apiPreferences.updateTokensForProviderModel(serviceForFunction.providerModel, inputTokens, outputTokens, cachedInputTokens)
+                
+                // Update request count
+                apiPreferences.incrementRequestCountForProviderModel(serviceForFunction.providerModel)
 
                 AppLogger.d(
                         TAG,
@@ -2568,11 +2555,8 @@ class EnhancedAIService private constructor(private val context: Context) {
      * @param messages 要总结的消息列表
      * @return 生成的总结文本
      */
-    suspend fun generateSummary(
-        messages: List<Pair<String, String>>,
-        recordTokenUsage: Boolean = true,
-    ): String {
-        return generateSummary(messages, null, recordTokenUsage = recordTokenUsage)
+    suspend fun generateSummary(messages: List<Pair<String, String>>): String {
+        return generateSummary(messages, null)
     }
 
     /**
@@ -2584,45 +2568,30 @@ class EnhancedAIService private constructor(private val context: Context) {
     suspend fun generateSummary(
             messages: List<Pair<String, String>>,
             previousSummary: String?,
-            summaryConfig: ConversationSummaryConfig = ConversationSummaryConfig(),
-            recordTokenUsage: Boolean = true,
+            customRules: String? = null
     ): String {
-        return generateSummaryFromPromptTurns(
-            messages.toPromptTurns(),
-            previousSummary,
-            summaryConfig,
-            recordTokenUsage,
-        )
+        return generateSummaryFromPromptTurns(messages.toPromptTurns(), previousSummary, customRules)
     }
 
     suspend fun generateSummaryFromPromptTurns(
             messages: List<PromptTurn>,
             previousSummary: String?,
-            summaryConfig: ConversationSummaryConfig = ConversationSummaryConfig(),
-            recordTokenUsage: Boolean = true,
+            customRules: String? = null
     ): String {
         // 调用ConversationService中的方法
-        return conversationService.generateSummaryFromPromptTurns(
-            messages,
-            previousSummary,
-            multiServiceManager,
-            summaryConfig,
-            recordTokenUsage,
-        )
+        return conversationService.generateSummaryFromPromptTurns(messages, previousSummary, multiServiceManager, customRules)
     }
 
 
 
     suspend fun generateConversationTitle(
         userText: String,
-        attachmentFileNames: List<String> = emptyList(),
-        recordTokenUsage: Boolean = true,
+        attachmentFileNames: List<String> = emptyList()
     ): String {
         return conversationService.generateConversationTitle(
             userText = userText,
             attachmentFileNames = attachmentFileNames,
-            multiServiceManager = multiServiceManager,
-            recordTokenUsage = recordTokenUsage,
+            multiServiceManager = multiServiceManager
         )
     }
 
@@ -2918,7 +2887,7 @@ class EnhancedAIService private constructor(private val context: Context) {
             val toolExposureMode = ToolExposureMode.resolve(config.apiProviderType)
 
             // 获取所有工具分类
-            val isEnglish = !LocaleUtils.usesChineseContent(context)
+            val isEnglish = LocaleUtils.getCurrentLanguage(context) == "en"
 
             // 后端识图服务是否可用（IMAGE_RECOGNITION 功能），用于 intent-based 视觉模型
             val hasBackendImageRecognition = multiServiceManager.hasImageRecognitionConfigured()
@@ -3142,8 +3111,8 @@ class EnhancedAIService private constructor(private val context: Context) {
      * @param text 要翻译的文本
      * @return 翻译后的文本
      */
-    suspend fun translateText(text: String, recordTokenUsage: Boolean = true): String {
-        return conversationService.translateText(text, multiServiceManager, recordTokenUsage)
+    suspend fun translateText(text: String): String {
+        return conversationService.translateText(text, multiServiceManager)
     }
 
     /**

@@ -68,11 +68,6 @@ data class MessageVariantContentRow(
     val contentCharacterCount: Long,
 )
 
-data class ChatContentCharacterCount(
-    val chatId: String,
-    val contentCharacterCount: Long,
-)
-
 /** Reads message text in bounded rows so a single large message cannot overflow CursorWindow. */
 @Dao
 abstract class ChatContentDao {
@@ -206,15 +201,12 @@ abstract class ChatContentDao {
 
     @Query(
         MESSAGE_VARIANT_CONTENT_ROW_QUERY +
-            " WHERE chatId = :chatId" +
-            " AND messageTimestamp >= :minTimestamp" +
-            " AND messageTimestamp <= :maxTimestamp" +
+            " WHERE chatId = :chatId AND messageTimestamp IN (:messageTimestamps)" +
             " ORDER BY messageTimestamp ASC, variantIndex ASC"
     )
-    protected abstract suspend fun queryVariantsForMessageRange(
+    protected abstract suspend fun queryVariantsForMessages(
         chatId: String,
-        minTimestamp: Long,
-        maxTimestamp: Long,
+        messageTimestamps: List<Long>,
     ): List<MessageVariantContentRow>
 
     @Query(
@@ -247,31 +239,6 @@ abstract class ChatContentDao {
         startCharacter: Long,
         characterCount: Int,
     ): String?
-
-    @Query(
-        """
-        SELECT
-            chats.id AS chatId,
-            COALESCE(
-                SUM(
-                    CASE
-                        WHEN messages.selectedVariantIndex = 0 THEN LENGTH(messages.content)
-                        ELSE LENGTH(selectedVariant.content)
-                    END
-                ),
-                0
-            ) AS contentCharacterCount
-        FROM chats
-        LEFT JOIN messages
-            ON messages.chatId = chats.id
-        LEFT JOIN message_variants AS selectedVariant
-            ON selectedVariant.chatId = messages.chatId
-            AND selectedVariant.messageTimestamp = messages.timestamp
-            AND selectedVariant.variantIndex = messages.selectedVariantIndex
-        GROUP BY chats.id
-        """
-    )
-    abstract suspend fun getSelectedContentCharacterCountsByChat(): List<ChatContentCharacterCount>
 
     @Transaction
     open suspend fun getMessagesForChat(chatId: String): List<MessageEntity> =
@@ -372,24 +339,8 @@ abstract class ChatContentDao {
     open suspend fun getVariantsForMessages(
         chatId: String,
         messageTimestamps: List<Long>,
-    ): List<MessageVariantEntity> {
-        if (messageTimestamps.isEmpty()) {
-            return emptyList()
-        }
-
-        val requestedTimestamps = messageTimestamps.toHashSet()
-        val minTimestamp = messageTimestamps.minOrNull() ?: return emptyList()
-        val maxTimestamp = messageTimestamps.maxOrNull() ?: return emptyList()
-
-        // Preserve exact timestamp-set semantics while avoiding Room expanding a large list into SQLite bind variables.
-        val rows =
-            queryVariantsForMessageRange(
-                chatId = chatId,
-                minTimestamp = minTimestamp,
-                maxTimestamp = maxTimestamp,
-            ).filter { row -> row.variant.messageTimestamp in requestedTimestamps }
-        return materializeVariants(rows)
-    }
+    ): List<MessageVariantEntity> =
+        materializeVariants(queryVariantsForMessages(chatId, messageTimestamps))
 
     @Transaction
     open suspend fun getVariantsForMessage(

@@ -5,11 +5,15 @@
 -->
 <data-extraction-rules>
     <cloud-backup>
-        <!-- EncryptedSharedPreferences depends on a device-local Android Keystore key. -->
-        <exclude domain="sharedpref" path="codex_oauth_credentials.xml" />
+        <!-- TODO: Use <include> and <exclude> to control what is backed up.
+        <include .../>
+        <exclude .../>
+        -->
     </cloud-backup>
+    <!--
     <device-transfer>
-        <!-- EncryptedSharedPreferences depends on a device-local Android Keystore key. -->
-        <exclude domain="sharedpref" path="codex_oauth_credentials.xml" />
+        <include .../>
+        <exclude .../>
     </device-transfer>
+    -->
 </data-extraction-rules>

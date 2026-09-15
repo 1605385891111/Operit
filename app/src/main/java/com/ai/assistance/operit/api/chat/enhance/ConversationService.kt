@@ -16,7 +16,6 @@ import com.ai.assistance.operit.R
 import com.ai.assistance.operit.core.tools.AIToolHandler
 import com.ai.assistance.operit.core.tools.packTool.PackageManager
 import com.ai.assistance.operit.data.model.AITool
-import com.ai.assistance.operit.data.model.ConversationSummaryConfig
 import com.ai.assistance.operit.data.model.FunctionType
 import com.ai.assistance.operit.data.model.ModelParameter
 import com.ai.assistance.operit.data.model.ToolParameter
@@ -115,20 +114,18 @@ class ConversationService(
             messages: List<PromptTurn>,
             previousSummary: String?,
             multiServiceManager: MultiServiceManager,
-            summaryConfig: ConversationSummaryConfig = ConversationSummaryConfig(),
-            recordTokenUsage: Boolean = true,
+            customRules: String? = null
     ): String {
         try {
-            val useEnglish = !LocaleUtils.usesChineseContent(context)
+            val useEnglish = LocaleUtils.getCurrentLanguage(context).lowercase().startsWith("en")
             val activePromptMetadata = buildActivePromptHookMetadata(context)
-            var systemPrompt =
-                FunctionalPrompts.buildSummarySystemPrompt(
-                    previousSummary = previousSummary,
-                    useEnglish = useEnglish,
-                    summaryConfig = summaryConfig
-                )
+            var systemPrompt = FunctionalPrompts.buildSummarySystemPrompt(previousSummary, useEnglish)
+            // 注入自定义总结规则
+            if (!customRules.isNullOrBlank()) {
+                systemPrompt += "\n\n${customRules.trim()}"
+            }
             val sanitizedMessages =
-                ChatUtils.stripOpenAiResponsesProtocolMarkupTurns(
+                ChatUtils.stripOpenAiResponsesReasoningMetaTurns(
                     ChatUtils.stripGeminiThoughtSignatureMetaTurns(messages)
                 )
 
@@ -272,8 +269,7 @@ class ConversationService(
                     summaryService.sendMessage(
                             context = context,
                             chatHistory = preparedHistory,
-                            modelParameters = modelParameters,
-                            recordTokenUsage = recordTokenUsage,
+                            modelParameters = modelParameters
                     )
 
             // 收集流中的所有内容
@@ -324,7 +320,18 @@ class ConversationService(
                 return "Conversation Summary: Unable to generate valid summary."
             }
 
-            AppLogger.d(TAG, "总结生成使用了输入token: $inputTokens, 缓存token: $cachedInputTokens, 输出token: $outputTokens")
+            // 将总结token计数添加到用户偏好分析的token统计中
+            try {
+                AppLogger.d(TAG, "总结生成使用了输入token: $inputTokens, 缓存token: $cachedInputTokens, 输出token: $outputTokens")
+                apiPreferences.updateTokensForProviderModel(summaryService.providerModel, inputTokens, outputTokens, cachedInputTokens)
+                
+                // Update request count for summary generation
+                apiPreferences.incrementRequestCountForProviderModel(summaryService.providerModel)
+                
+                AppLogger.d(TAG, "已将总结token统计添加到用户偏好分析token计数中")
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "更新token统计失败", e)
+            }
 
             return summaryContent
         } catch (e: Exception) {
@@ -339,11 +346,10 @@ class ConversationService(
     suspend fun generateConversationTitle(
         userText: String,
         attachmentFileNames: List<String>,
-        multiServiceManager: MultiServiceManager,
-        recordTokenUsage: Boolean = true,
+        multiServiceManager: MultiServiceManager
     ): String {
         return try {
-            val useEnglish = !LocaleUtils.usesChineseContent(context)
+            val useEnglish = LocaleUtils.getCurrentLanguage(context).lowercase().startsWith("en")
             val systemPrompt = FunctionalPrompts.conversationTitleSystemPrompt(useEnglish)
             val userPrompt = FunctionalPrompts.conversationTitleUserPrompt(
                 userText = userText,
@@ -362,18 +368,28 @@ class ConversationService(
                 chatHistory = preparedHistory,
                 modelParameters = modelParameters,
                 stream = false,
-                enableRetry = false,
-                recordTokenUsage = recordTokenUsage,
+                enableRetry = false
             ).collect { content -> contentBuilder.append(content) }
 
             val title = sanitizeConversationTitle(
                 ChatUtils.removeThinkingContent(contentBuilder.toString().trim())
             )
 
-            val inputTokens = titleService.inputTokenCount
-            val cachedInputTokens = titleService.cachedInputTokenCount
-            val outputTokens = titleService.outputTokenCount
-            AppLogger.d(TAG, "标题生成使用了输入token: $inputTokens, 缓存token: $cachedInputTokens, 输出token: $outputTokens")
+            try {
+                val inputTokens = titleService.inputTokenCount
+                val cachedInputTokens = titleService.cachedInputTokenCount
+                val outputTokens = titleService.outputTokenCount
+                apiPreferences.updateTokensForProviderModel(
+                    titleService.providerModel,
+                    inputTokens,
+                    outputTokens,
+                    cachedInputTokens
+                )
+                apiPreferences.incrementRequestCountForProviderModel(titleService.providerModel)
+                AppLogger.d(TAG, "标题生成使用了输入token: $inputTokens, 缓存token: $cachedInputTokens, 输出token: $outputTokens")
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "更新标题生成token统计失败", e)
+            }
 
             title
         } catch (e: Exception) {
@@ -548,7 +564,7 @@ class ConversationService(
                     apiPreferences.safBookmarksFlow.first().map { it.name }
                 }.getOrElse { emptyList() }
 
-                val useEnglish = !LocaleUtils.usesChineseContent(context)
+                val useEnglish = LocaleUtils.getCurrentLanguage(context).lowercase().startsWith("en")
                 resolvedUseEnglish = useEnglish
                 val roleCardToolAccess = characterCardToolAccessResolver.resolve(
                     roleCardId = effectiveRoleCardId,
@@ -1077,18 +1093,13 @@ class ConversationService(
      * @param multiServiceManager 多服务管理器
      * @return 翻译后的文本
      */
-    suspend fun translateText(
-        text: String,
-        multiServiceManager: MultiServiceManager,
-        recordTokenUsage: Boolean = true,
-    ): String {
+    suspend fun translateText(text: String, multiServiceManager: MultiServiceManager): String {
         val currentLanguage = LocaleUtils.getCurrentLanguage(context)
         
         // 根据当前语言确定目标语言
         val targetLanguage = when (currentLanguage) {
             LocaleUtils.LanguageCodes.CHINESE -> context.getString(R.string.conversation_language_chinese)
             LocaleUtils.LanguageCodes.ENGLISH -> "English"
-            LocaleUtils.LanguageCodes.JAPANESE -> "Japanese"
             LocaleUtils.LanguageCodes.KOREAN -> "Korean"
             LocaleUtils.LanguageCodes.SPANISH -> "Spanish"
             LocaleUtils.LanguageCodes.MALAY -> "Malay"
@@ -1121,8 +1132,7 @@ ${FunctionalPrompts.translationUserPrompt(targetLanguage, text)}
             val stream = translationService.sendMessage(
                 context = context,
                 chatHistory = chatHistory + PromptTurn(kind = PromptTurnKind.USER, content = translationPrompt),
-                modelParameters = modelParameters,
-                recordTokenUsage = recordTokenUsage,
+                modelParameters = modelParameters
             )
             
             stream.collect { content ->
@@ -1153,7 +1163,7 @@ ${FunctionalPrompts.translationUserPrompt(targetLanguage, text)}
         
         val toolList = toolDescriptions.joinToString("\n") { "- $it" }
 
-        val useEnglish = !LocaleUtils.usesChineseContent(context)
+        val useEnglish = LocaleUtils.getCurrentLanguage(context).lowercase().startsWith("en")
         val descriptionPrompt =
             FunctionalPrompts.packageDescriptionUserPrompt(
                 pluginName = pluginName,
@@ -1181,7 +1191,7 @@ ${FunctionalPrompts.translationUserPrompt(targetLanguage, text)}
             val stream = summaryService.sendMessage(
                 context = context,
                 chatHistory = chatHistory + PromptTurn(kind = PromptTurnKind.USER, content = descriptionPrompt),
-                modelParameters = modelParameters,
+                modelParameters = modelParameters
             )
             
             stream.collect { content ->
@@ -1239,7 +1249,7 @@ ${FunctionalPrompts.translationUserPrompt(targetLanguage, text)}
             service.sendMessage(
                 context = context,
                 chatHistory = listOf(PromptTurn(kind = PromptTurnKind.USER, content = prompt)),
-                modelParameters = modelParameters,
+                modelParameters = modelParameters
             ).collect { chunk ->
                 result.append(chunk)
             }
@@ -1284,7 +1294,7 @@ ${FunctionalPrompts.translationUserPrompt(targetLanguage, text)}
             service.sendMessage(
                 context = context,
                 chatHistory = listOf(PromptTurn(kind = PromptTurnKind.USER, content = prompt)),
-                modelParameters = modelParameters,
+                modelParameters = modelParameters
             ).collect { chunk ->
                 result.append(chunk)
             }
@@ -1327,7 +1337,7 @@ ${FunctionalPrompts.translationUserPrompt(targetLanguage, text)}
             service.sendMessage(
                 context = context,
                 chatHistory = listOf(PromptTurn(kind = PromptTurnKind.USER, content = prompt)),
-                modelParameters = modelParameters,
+                modelParameters = modelParameters
             ).collect { chunk ->
                 result.append(chunk)
             }

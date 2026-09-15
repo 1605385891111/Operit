@@ -379,12 +379,11 @@ private fun ManagedEntryCard(
     val canSubmitRevision = review.state == MarketReviewState.CHANGES_REQUESTED
     // A pending listing has no public detail shard, so public-detail actions cannot be opened yet.
     val canOpenPublicEntry = entry.isOpen() && entry.listingState != "pending_listing"
-    val canPublishNewVersion = canOpenPublicEntry || (canManageEntry && entry.isWithdrawn())
     MarketManageItemCard(
         title = entry.title,
         description = entry.manageSummaryText(),
         isOpen = canOpenPublicEntry,
-        showActions = canPublishNewVersion || canSubmitRevision || (canManageEntry && entry.isOpen()),
+        showActions = canManageEntry || canOpenPublicEntry || canSubmitRevision,
         onClick = {
             if (canOpenPublicEntry) {
                 viewModel.openEntryDetail(entry, onNavigateToDetail)
@@ -437,12 +436,12 @@ private fun ManagedEntryCard(
                     }
                 )
             }
-            if (canPublishNewVersion) {
+            if (canOpenPublicEntry) {
                 MarketManageSecondaryActionButton(
                     label = stringResource(R.string.market_publish_new_version),
                     icon = Icons.Default.NewReleases,
                     onClick = {
-                        val openNewVersionScreen = { fullEntry: MarketV2Entry ->
+                        viewModel.openEntryDetail(entry) { fullEntry ->
                             when (val type = fullEntry.marketStatsType()) {
                                 MarketStatsType.SCRIPT,
                                 MarketStatsType.PACKAGE -> onNavigateToPublishArtifactVersion(fullEntry, canManageEntry)
@@ -450,11 +449,6 @@ private fun ManagedEntryCard(
                                 MarketStatsType.MCP -> onNavigateToPublishRepoVersion(type, fullEntry, canManageEntry)
                                 null -> Unit
                             }
-                        }
-                        if (canOpenPublicEntry) {
-                            viewModel.openEntryDetail(entry, openNewVersionScreen)
-                        } else {
-                            viewModel.openOwnedEntryDetail(entry, openNewVersionScreen)
                         }
                     }
                 )
@@ -586,10 +580,6 @@ private fun MarketManageRelationBadge(relation: String) {
 
 private fun MarketV2PublisherEntrySummary.isOpen(): Boolean {
     return stateCode.equals("approved", ignoreCase = true) || stateCode.equals("open", ignoreCase = true)
-}
-
-private fun MarketV2PublisherEntrySummary.isWithdrawn(): Boolean {
-    return stateCode.equals("withdrawn", ignoreCase = true)
 }
 
 private fun MarketV2PublisherEntrySummary.isOwnerRelation(): Boolean {

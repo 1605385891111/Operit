@@ -99,7 +99,7 @@ fun RepoMarketPublishScreen(
     var showConfirmationDialog by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var categories by remember { mutableStateOf<List<MarketV2ManifestCategory>>(emptyList()) }
-    val isOwnerOnlyEntryMetadataLocked = isVersionMode && !canEditEntry
+    val isEntryMetadataLocked = isVersionMode && !canEditEntry
 
     if (!isEditMode) {
         LaunchedEffect(title, description, detail, repositoryUrl, installConfig, category, allowPublicUpdates) {
@@ -141,7 +141,7 @@ fun RepoMarketPublishScreen(
             label = { Text(repoNameLabel(type)) },
             modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
             singleLine = true,
-            enabled = !isOwnerOnlyEntryMetadataLocked,
+            enabled = !isEntryMetadataLocked,
             isError = title.isBlank()
         )
 
@@ -152,7 +152,7 @@ fun RepoMarketPublishScreen(
             modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
             minLines = 3,
             maxLines = 6,
-            enabled = true,
+            enabled = !isEntryMetadataLocked,
             isError = description.isBlank()
         )
 
@@ -163,7 +163,7 @@ fun RepoMarketPublishScreen(
             modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
             minLines = 4,
             maxLines = 10,
-            enabled = true
+            enabled = !isEntryMetadataLocked
         )
 
         OutlinedTextField(
@@ -186,7 +186,7 @@ fun RepoMarketPublishScreen(
             selectedCategory = category,
             categories = categories,
             onCategorySelected = { category = it },
-            enabled = !isOwnerOnlyEntryMetadataLocked,
+            enabled = !isEntryMetadataLocked,
             modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
         )
 

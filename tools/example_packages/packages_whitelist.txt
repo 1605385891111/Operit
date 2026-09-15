@@ -34,7 +34,6 @@ zhipu_search.js
 linux_ssh
 deepsearching
 message_insert
-message_translation
 apktool
 remote_operit
 worldbook

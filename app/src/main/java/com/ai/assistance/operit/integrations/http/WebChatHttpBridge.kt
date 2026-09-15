@@ -8,9 +8,6 @@ import com.ai.assistance.operit.R
 import com.ai.assistance.operit.BuildConfig
 import com.ai.assistance.operit.api.chat.EnhancedAIService
 import com.ai.assistance.operit.api.chat.llmprovider.MediaLinkParser
-import com.ai.assistance.operit.api.chat.llmprovider.ThinkingQualityControl
-import com.ai.assistance.operit.api.chat.llmprovider.ThinkingQualityMapping
-import com.ai.assistance.operit.api.chat.llmprovider.ThinkingQualityMappingRegistry
 import com.ai.assistance.operit.api.chat.ChatRuntimeHolder
 import com.ai.assistance.operit.api.chat.ChatRuntimeSlot
 import com.ai.assistance.operit.data.model.ActivePrompt
@@ -396,6 +393,9 @@ class WebChatHttpBridge(
         }
 
         val response = runBlocking {
+            functionalConfigManager.initializeIfNeeded()
+            modelConfigManager.initializeIfNeeded()
+
             val selectorBefore = resolveModelSelectorState()
             val targetConfig = selectorBefore.configs.firstOrNull { it.id == selectedId }
                 ?: return@runBlocking null
@@ -1517,6 +1517,9 @@ class WebChatHttpBridge(
     }
 
     private suspend fun resolveModelSelectorState(): WebModelSelectorState {
+        functionalConfigManager.initializeIfNeeded()
+        modelConfigManager.initializeIfNeeded()
+
         val configSummaries = modelConfigManager.getAllConfigSummaries()
         val activePrompt = activePromptManager.getActivePrompt()
         val lockedCard = when (activePrompt) {
@@ -1552,14 +1555,6 @@ class WebChatHttpBridge(
         val currentModelName = currentConfig?.let {
             getModelByIndex(it.modelName, currentModelIndex)
         }?.takeIf { it.isNotBlank() } ?: appContext.getString(R.string.not_selected)
-        val thinkingQualityMapping = ThinkingQualityMappingRegistry
-            .resolveForModel(
-                providerTypeId = currentConfig?.apiProviderTypeId.orEmpty(),
-                modelName = currentModelName,
-                apiEndpoint = currentConfig?.apiEndpoint.orEmpty(),
-                thinkingConfigurations = currentConfig?.thinkingConfigurations.orEmpty(),
-            )
-            .toWebThinkingQualityMapping()
 
         return WebModelSelectorState(
             currentConfigId = currentConfigMapping.configId,
@@ -1570,7 +1565,6 @@ class WebChatHttpBridge(
             lockedByCharacterCard = lockedCard != null,
             lockedCharacterCardId = lockedCard?.id,
             lockedCharacterCardName = lockedCard?.name,
-            thinkingQualityMapping = thinkingQualityMapping,
             configs = configSummaries.map { config ->
                 val models = getModelList(config.modelName)
                 WebModelSelectorConfig(
@@ -1592,20 +1586,6 @@ class WebChatHttpBridge(
             }
         )
     }
-
-    private fun ThinkingQualityMapping.toWebThinkingQualityMapping(): WebThinkingQualityMapping =
-        WebThinkingQualityMapping(
-            mode = when (control) {
-                ThinkingQualityControl.LEVELS -> "levels"
-                ThinkingQualityControl.TOGGLE_ONLY -> "toggle_only"
-                ThinkingQualityControl.UNSUPPORTED -> "unsupported"
-            },
-            parameterLabel = parameterLabel,
-            options = options.map { option ->
-                WebThinkingQualityOption(id = option.id, label = option.displayLabel)
-            },
-            reasoningRequired = reasoningRequired,
-        )
 
     private suspend fun resolveDefaultCharacterPromptSnapshot(
         allCards: List<CharacterCard>
@@ -1771,18 +1751,8 @@ class WebChatHttpBridge(
         val mediaLinkAttachments = MediaLinkParser.extractMediaLinkTags(cleanedContent).map { tag ->
             WebMessageAttachment(
                 id = "media_pool:${tag.id}",
-                fileName = when (tag.type) {
-                    "audio" -> "Audio"
-                    "video" -> "Video"
-                    "file" -> tag.fileName.orEmpty()
-                    else -> tag.type
-                },
-                mimeType = when (tag.type) {
-                    "audio" -> "audio/*"
-                    "video" -> "video/*"
-                    "file" -> "application/pdf"
-                    else -> "application/octet-stream"
-                },
+                fileName = if (tag.type == "audio") "Audio" else "Video",
+                mimeType = if (tag.type == "audio") "audio/*" else "video/*",
                 fileSize = 0L
             )
         }
@@ -2005,7 +1975,6 @@ class WebChatHttpBridge(
             ) {
                 var nextIndex = index + 1
                 var toolCount = 0
-                var searchCount = 0
                 var xmlToolRelatedCount = 0
 
                 while (nextIndex < blocks.size) {
@@ -2026,8 +1995,7 @@ class WebChatHttpBridge(
 
                     val isThinkAgain = nextTagName == "think" || nextTagName == "thinking"
                     val isToolRelated = nextTagName == "tool" || nextTagName == "tool_result"
-                    val isSearchRelated = nextTagName == "search"
-                    if (!isThinkAgain && !isToolRelated && !isSearchRelated) {
+                    if (!isThinkAgain && !isToolRelated) {
                         break
                     }
 
@@ -2046,19 +2014,14 @@ class WebChatHttpBridge(
                         }
                         xmlToolRelatedCount++
                     }
-                    if (isSearchRelated) {
-                        searchCount++
-                        xmlToolRelatedCount++
-                    }
 
                     nextIndex++
                 }
 
                 if (
-                    shouldCollapseThinkSequence(
+                    shouldCollapseToolSequence(
                         toolCollapseMode = structuredRenderPreferences.toolCollapseMode,
                         toolCount = toolCount,
-                        searchCount = searchCount,
                         xmlToolRelatedCount = xmlToolRelatedCount
                     )
                 ) {
@@ -2140,40 +2103,6 @@ class WebChatHttpBridge(
                 }
             }
 
-            if (tagName == "search") {
-                var nextIndex = index + 1
-
-                while (nextIndex < blocks.size) {
-                    val next = blocks[nextIndex]
-                    if (next.kind == "text" && next.content?.isBlank() == true) {
-                        nextIndex++
-                        continue
-                    }
-                    if (next.kind != "xml") {
-                        break
-                    }
-
-                    val nextTagName = next.tagName
-                    if (isIgnorableXmlTagForToolGrouping(nextTagName)) {
-                        nextIndex++
-                        continue
-                    }
-                    if (nextTagName != "search") {
-                        break
-                    }
-
-                    nextIndex++
-                }
-
-                grouped += WebMessageContentBlock(
-                    kind = "group",
-                    groupType = "search_only",
-                    children = blocks.subList(index, nextIndex).toList()
-                )
-                index = nextIndex
-                continue
-            }
-
             grouped += block
             index++
         }
@@ -2225,23 +2154,6 @@ class WebChatHttpBridge(
             ToolCollapseMode.FULL -> true
             ToolCollapseMode.READ_ONLY,
             ToolCollapseMode.ALL -> toolCount >= 2 && xmlToolRelatedCount >= 2
-        }
-    }
-
-    private fun shouldCollapseThinkSequence(
-        toolCollapseMode: ToolCollapseMode,
-        toolCount: Int,
-        searchCount: Int,
-        xmlToolRelatedCount: Int
-    ): Boolean {
-        if (xmlToolRelatedCount <= 0) {
-            return false
-        }
-
-        return when (toolCollapseMode) {
-            ToolCollapseMode.FULL -> true
-            ToolCollapseMode.READ_ONLY,
-            ToolCollapseMode.ALL -> searchCount > 0 || (toolCount >= 2 && xmlToolRelatedCount >= 2)
         }
     }
 

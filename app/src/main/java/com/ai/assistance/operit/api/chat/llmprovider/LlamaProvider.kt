@@ -18,7 +18,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.IOException
 
 class LlamaProvider(
     private val context: Context,
@@ -148,13 +147,13 @@ class LlamaProvider(
                         preserveThinkInHistory = false
                     )
                     val toolsJson = StructuredToolCallBridge.buildToolsJson(availableTools)
-                    s.applyStructuredChatTemplate(messagesJson, toolsJson, true, true)
+                    s.applyStructuredChatTemplate(messagesJson, toolsJson, true)
                 } else {
                     val (roles, contents) = buildPlainPromptMessages(
                         chatHistory = chatHistory,
                         preserveThinkInHistory = false
                     )
-                    s.applyChatTemplate(roles, contents, true, true)
+                    s.applyChatTemplate(roles, contents, true)
                 } ?: return@runCatching null
 
                 s.countTokens(prompt).toLong()
@@ -171,28 +170,28 @@ class LlamaProvider(
         availableTools: List<ToolPrompt>?,
         preserveThinkInHistory: Boolean,
         onTokensUpdated: suspend (input: Long, cachedInput: Long, output: Long) -> Unit,
-        onUsageReported: (suspend (com.ai.assistance.operit.data.stats.ProviderUsageSnapshot, attempt: Int) -> Unit)?,
         onNonFatalError: suspend (error: String) -> Unit,
-        enableRetry: Boolean,
-        recordTokenUsage: Boolean,
-        onUsageFinalized: (suspend (attempt: Int?) -> Unit)?,
+        enableRetry: Boolean
     ): Stream<String> = stream {
         isCancelled = false
 
         if (!LlamaSession.isAvailable()) {
-            throw IOException("${context.getString(R.string.llama_error_prefix)}: ${LlamaSession.getUnavailableReason()}")
+            emit("${context.getString(R.string.llama_error_prefix)}: ${LlamaSession.getUnavailableReason()}")
+            return@stream
         }
 
         val modelFile = getModelFile(context, modelName)
         if (!modelFile.exists()) {
-            throw IOException("${context.getString(R.string.llama_error_prefix)}: ${context.getString(R.string.llama_error_model_file_not_exist, modelFile.absolutePath)}")
+            emit("${context.getString(R.string.llama_error_prefix)}: ${context.getString(R.string.llama_error_model_file_not_exist, modelFile.absolutePath)}")
+            return@stream
         }
 
         val s = withContext(Dispatchers.IO) {
             ensureSessionLocked()
         }
         if (s == null) {
-            throw IOException(context.getString(R.string.llama_error_session_create_failed))
+            emit(context.getString(R.string.llama_error_session_create_failed))
+            return@stream
         }
 
         val effectiveEnableToolCall = shouldUseToolCall(availableTools)
@@ -208,17 +207,18 @@ class LlamaProvider(
                     preserveThinkInHistory = preserveThinkInHistory
                 )
                 val toolsJson = StructuredToolCallBridge.buildToolsJson(availableTools)
-                s.applyStructuredChatTemplate(messagesJson, toolsJson, enableThinking, true)
+                s.applyStructuredChatTemplate(messagesJson, toolsJson, true)
             } else {
                 val (roles, contents) = buildPlainPromptMessages(
                     chatHistory = chatHistory,
                     preserveThinkInHistory = preserveThinkInHistory
                 )
-                s.applyChatTemplate(roles, contents, enableThinking, true)
+                s.applyChatTemplate(roles, contents, true)
             }
         }
         if (prompt.isNullOrBlank()) {
-            throw IOException(context.getString(R.string.llama_error_chat_template_failed))
+            emit(context.getString(R.string.llama_error_chat_template_failed))
+            return@stream
         }
 
         logLargeString("Final prompt before llama generation: ", prompt)
@@ -289,67 +289,53 @@ class LlamaProvider(
         val toolCallOutputBuffer = StringBuilder()
         val finalOutputBuffer = StringBuilder()
 
-        val usageReporter = LocalUsageReporter(
-            com.ai.assistance.operit.data.stats.ProviderUsageNormalizer.SOURCE_LLAMA,
-            onUsageReported,
-        )
         val success = withContext(Dispatchers.IO) {
-                s.generateStream(prompt, requestedMaxNewTokens) { token ->
-                    if (isCancelled) {
-                        false
+            s.generateStream(prompt, requestedMaxNewTokens) { token ->
+                if (isCancelled) {
+                    false
+                } else {
+                    outputTokenCount += 1L
+                    _outputTokenCount = outputTokenCount
+
+                    if (effectiveEnableToolCall) {
+                        toolCallOutputBuffer.append(token)
                     } else {
-                        outputTokenCount += 1L
-                        _outputTokenCount = outputTokenCount
-
-                        if (effectiveEnableToolCall) {
-                            toolCallOutputBuffer.append(token)
-                        } else {
-                            finalOutputBuffer.append(token)
-                            runBlocking { emit(token) }
-                        }
-
-                        kotlin.runCatching {
-                            kotlinx.coroutines.runBlocking {
-                                onTokensUpdated(_inputTokenCount, 0L, _outputTokenCount)
-                            }
-                        }
-
-                        true
+                        finalOutputBuffer.append(token)
+                        runBlocking { emit(token) }
                     }
+
+                    kotlin.runCatching {
+                        kotlinx.coroutines.runBlocking {
+                            onTokensUpdated(_inputTokenCount, 0L, _outputTokenCount)
+                        }
+                    }
+
+                    true
                 }
             }
+        }
 
-        LocalGenerationEnd.end(
-            cancelled = isCancelled,
-            success = success,
-            usageReporter = usageReporter,
-            inputTokens = _inputTokenCount,
-            outputTokens = _outputTokenCount,
-            cancelMessage = context.getString(R.string.llama_error_request_cancelled),
-            emitToolResult = {
-                if (effectiveEnableToolCall) {
-                    val normalizedPayload = withContext(Dispatchers.IO) {
-                        kotlin.runCatching {
-                            s.parseToolCallResponse(toolCallOutputBuffer.toString())
-                        }.getOrNull()
-                    }
-                    val converted = StructuredToolCallBridge.convertToolCallPayloadToXml(
-                        normalizedPayload ?: toolCallOutputBuffer.toString()
-                    )
-                    if (converted.isNotBlank()) {
-                        finalOutputBuffer.append(converted)
-                        emit(converted)
-                    }
-                }
-            },
-            failWith = {
+        if (effectiveEnableToolCall) {
+            val normalizedPayload = withContext(Dispatchers.IO) {
                 kotlin.runCatching {
-                    onNonFatalError(context.getString(R.string.llama_error_inference_failed))
-                }
-                throw IOException(context.getString(R.string.llama_error_inference_failed))
-            },
-        )
-        onUsageFinalized?.invoke(1)
+                    s.parseToolCallResponse(toolCallOutputBuffer.toString())
+                }.getOrNull()
+            }
+            val converted = StructuredToolCallBridge.convertToolCallPayloadToXml(
+                normalizedPayload ?: toolCallOutputBuffer.toString()
+            )
+            if (converted.isNotBlank()) {
+                finalOutputBuffer.append(converted)
+                emit(converted)
+            }
+        }
+
+        if (!success && !isCancelled) {
+            kotlin.runCatching {
+                onNonFatalError(context.getString(R.string.llama_error_inference_failed))
+            }
+            emit("\n\n${context.getString(R.string.llama_error_inference_tag)}")
+        }
 
         AppLogger.i(TAG, "llama.cpp推理完成，输出token数: $_outputTokenCount")
         logFinalOutput(finalOutputBuffer, "Final llama.cpp output summary: ")
@@ -374,13 +360,12 @@ class LlamaProvider(
                         PromptTurnKind.ASSISTANT,
                         PromptTurnKind.TOOL_CALL -> "assistant"
                     }
-                val rawContent =
+                val content =
                     if (!preserveThinkInHistory && turn.kind == PromptTurnKind.ASSISTANT) {
                         ChatUtils.removeThinkingContent(turn.content)
                     } else {
                         turn.content
                     }
-                val content = ChatUtils.stripOpenAiResponsesProtocolMarkup(rawContent)
                 role to content
             }
         val roles = ArrayList<String>(normalizedHistory.size)

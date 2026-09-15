@@ -249,15 +249,8 @@ internal class WebSessionBrowserHost(
         updateIndicatorLayoutForCurrentState()
     }
 
-    fun attachActiveWebView(webView: WebView?, viewportWidth: Int? = null, viewportHeight: Int? = null) {
-        updateHostState {
-            if (it.viewportWidthPx == viewportWidth && it.viewportHeightPx == viewportHeight) {
-                it
-            } else {
-                it.copy(viewportWidthPx = viewportWidth, viewportHeightPx = viewportHeight)
-            }
-        }
-        webViewHost.setActiveWebView(webView, viewportWidth, viewportHeight)
+    fun attachActiveWebView(webView: WebView?) {
+        webViewHost.setActiveWebView(webView)
     }
 
     fun showTextSelectionActionsOverlay(anchorX: Double, anchorY: Double) {
@@ -309,16 +302,14 @@ internal class WebSessionBrowserHost(
     fun setViewportSize(width: Int, height: Int) {
         updateHostState {
             it.copy(
-                viewportWidthPx = width,
-                viewportHeightPx = height
+                viewportWidthPx = width.coerceAtLeast(dp(240)),
+                viewportHeightPx = height.coerceAtLeast(dp(320))
             )
         }
-        webViewHost.setViewportSize(width, height)
     }
 
     fun clearViewportSizeOverride() {
         updateHostState { it.copy(viewportWidthPx = null, viewportHeightPx = null) }
-        webViewHost.setViewportSize(null, null)
     }
 
     fun currentViewportSize(): Pair<Int, Int> {
@@ -562,7 +553,7 @@ internal class WebSessionBrowserHost(
 
         val location = IntArray(2)
         webView.getLocationOnScreen(location)
-        val scale = webView.scale * webView.scaleX
+        val scale = webView.scale
         val width = actionsView.measuredWidth
         val height = actionsView.measuredHeight
         val metrics = appContext.resources.displayMetrics

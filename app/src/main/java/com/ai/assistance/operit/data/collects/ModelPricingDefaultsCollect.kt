@@ -35,8 +35,7 @@ object DefaultModelPricingCollect {
         "DOUBAO",
         "PPINFRA",
         "OPENAI_LOCAL",
-        "MIMO",
-        "MINIMAX"
+        "MIMO"
     )
 
     private fun defaultPricePerRequest(currency: PricingCurrency): Double {
@@ -156,7 +155,6 @@ object DefaultModelPricingCollect {
     private val providerFallbacks = mapOf(
         "OPENAI" to zeroPricing(PricingCurrency.USD),
         "OPENAI_RESPONSES" to zeroPricing(PricingCurrency.USD),
-        "OPENAI_CODEX" to zeroPricing(PricingCurrency.USD),
         "OPENAI_RESPONSES_GENERIC" to zeroPricing(PricingCurrency.USD),
         "OPENAI_GENERIC" to zeroPricing(PricingCurrency.USD),
         "ANTHROPIC" to zeroPricing(PricingCurrency.USD),
@@ -186,8 +184,7 @@ object DefaultModelPricingCollect {
         "MNN" to zeroPricing(PricingCurrency.CNY),
         "LLAMA_CPP" to zeroPricing(PricingCurrency.CNY),
         "MIMO" to zeroPricing(PricingCurrency.CNY),
-        "NOVITA" to zeroPricing(PricingCurrency.USD),
-        "MINIMAX" to zeroPricing(PricingCurrency.CNY)
+        "NOVITA" to zeroPricing(PricingCurrency.USD)
     )
 
     private fun splitProviderModel(providerModel: String): Pair<String, String> {

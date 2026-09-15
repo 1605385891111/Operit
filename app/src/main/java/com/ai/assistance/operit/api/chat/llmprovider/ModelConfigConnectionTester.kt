@@ -1,6 +1,7 @@
 package com.ai.assistance.operit.api.chat.llmprovider
 
 import android.content.Context
+import com.ai.assistance.operit.R
 import com.ai.assistance.operit.data.model.ModelConfigData
 import com.ai.assistance.operit.data.model.ToolParameterSchema
 import com.ai.assistance.operit.data.model.ToolPrompt
@@ -24,20 +25,11 @@ enum class ModelConnectionTestType {
     VIDEO
 }
 
-enum class ModelConnectionTestOutcome {
-    PASSED,
-    UNVERIFIED,
-    FAILED
-}
-
 data class ModelConnectionTestItem(
     val type: ModelConnectionTestType,
-    val outcome: ModelConnectionTestOutcome,
+    val success: Boolean,
     val error: String? = null
-) {
-    val success: Boolean
-        get() = outcome == ModelConnectionTestOutcome.PASSED
-}
+)
 
 data class ModelConnectionTestReport(
     val configId: String,
@@ -49,36 +41,10 @@ data class ModelConnectionTestReport(
     val items: List<ModelConnectionTestItem>
 ) {
     val success: Boolean
-        get() = items.none { it.outcome == ModelConnectionTestOutcome.FAILED }
-
-    val verified: Boolean
-        get() = items.isNotEmpty() && items.all { it.outcome == ModelConnectionTestOutcome.PASSED }
+        get() = items.all { it.success }
 }
 
 object ModelConfigConnectionTester {
-    /**
-     * One complete tool-call round trip for the Tool Call probe: the user asks, the assistant calls
-     * the tool, the tool answers.
-     *
-     * The turn kinds matter. The answer has to be a [PromptTurnKind.TOOL_RESULT] turn so that the
-     * provider pairs it with the call instead of reporting the call as never answered, and the
-     * probe has to open with a user turn because gateways that translate the OpenAI payload into
-     * another protocol (Poe onto Anthropic, for instance) reject a conversation that starts with an
-     * assistant message and leave its `tool_result` without a matching `tool_use`.
-     */
-    internal fun buildToolCallProbeHistory(toolName: String): List<PromptTurn> {
-        val toolTagName = ChatMarkupRegex.generateRandomToolTagName()
-        val toolResultTagName = ChatMarkupRegex.generateRandomToolResultTagName()
-        return listOf(
-            "system" to "You are a helpful assistant.",
-            "user" to "Call the $toolName tool with the text \"ping\".",
-            "assistant" to
-                "<$toolTagName name=\"$toolName\"><param name=\"text\">ping</param></$toolTagName>",
-            "tool_result" to
-                "<$toolResultTagName name=\"$toolName\" status=\"success\"><content>pong</content></$toolResultTagName>"
-        ).toPromptTurns()
-    }
-
     suspend fun run(
         context: Context,
         modelConfigManager: ModelConfigManager,
@@ -102,41 +68,33 @@ object ModelConfigConnectionTester {
         try {
             val parameters = modelConfigManager.getModelParametersForConfig(configForTest.id)
 
-            suspend fun collectResponse(history: List<PromptTurn>): String {
-                val buffer = StringBuilder()
-                service.sendMessage(
-                    context,
-                    history,
-                    parameters,
-                    stream = false,
-                    enableRetry = false,
-                    recordTokenUsage = false,
-                ).collect { chunk -> buffer.append(chunk) }
-                return buffer.toString()
-            }
-
-            suspend fun runCase(
-                type: ModelConnectionTestType,
-                block: suspend () -> ModelConnectionTestOutcome
-            ) {
-                val item =
+            suspend fun runCase(type: ModelConnectionTestType, block: suspend () -> Unit) {
+                val result =
                     try {
-                        ModelConnectionTestItem(type = type, outcome = block())
+                        block()
+                        Result.success(Unit)
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
-                        ModelConnectionTestItem(
-                            type = type,
-                            outcome = ModelConnectionTestOutcome.FAILED,
-                            error = e.message
-                        )
+                        Result.failure(e)
                     }
-                items.add(item)
+                items.add(
+                    ModelConnectionTestItem(
+                        type = type,
+                        success = result.isSuccess,
+                        error = result.exceptionOrNull()?.message
+                    )
+                )
             }
 
             runCase(ModelConnectionTestType.CHAT) {
-                collectResponse(listOf(PromptTurn(kind = PromptTurnKind.USER, content = "Hi")))
-                ModelConnectionTestOutcome.PASSED
+                service.sendMessage(
+                    context,
+                    listOf(PromptTurn(kind = PromptTurnKind.USER, content = "Hi")),
+                    parameters,
+                    stream = false,
+                    enableRetry = false
+                ).collect { }
             }
 
             if (configForTest.enableToolCall) {
@@ -159,25 +117,34 @@ object ModelConfigConnectionTester {
                         )
 
                     suspend fun runToolCallTest(toolName: String) {
+                        val toolTagName = ChatMarkupRegex.generateRandomToolTagName()
+                        val toolResultTagName = ChatMarkupRegex.generateRandomToolResultTagName()
+                        val testHistory = mutableListOf("system" to "You are a helpful assistant.")
+                        testHistory.add(
+                            "assistant" to
+                                "<$toolTagName name=\"$toolName\"><param name=\"text\">ping</param></$toolTagName>"
+                        )
+                        testHistory.add(
+                            "user" to
+                                "<$toolResultTagName name=\"$toolName\" status=\"success\"><content>pong</content></$toolResultTagName>"
+                        )
                         service.sendMessage(
                             context,
-                            buildToolCallProbeHistory(toolName),
+                            testHistory.toPromptTurns(),
                             parameters,
                             stream = false,
                             availableTools = availableTools,
-                            enableRetry = false,
-                            recordTokenUsage = false,
+                            enableRetry = false
                         ).collect { }
                     }
+
                     runToolCallTest("echo")
-                    ModelConnectionTestOutcome.PASSED
                 }
             }
 
             if (configForTest.enableDirectImageProcessing) {
                 runCase(ModelConnectionTestType.IMAGE) {
-                    val imageFile =
-                        AssetCopyUtils.copyAssetToCache(context, MediaCapabilityProbe.IMAGE_ASSET_PATH)
+                    val imageFile = AssetCopyUtils.copyAssetToCache(context, "test/1.jpg")
                     val imageId = ImagePoolManager.addImage(imageFile.absolutePath)
                     if (imageId == "error") {
                         throw IllegalStateException("Failed to create test image")
@@ -187,17 +154,15 @@ object ModelConfigConnectionTester {
                             buildString {
                                 append(MediaLinkBuilder.image(context, imageId))
                                 append("\n")
-                                append(MediaCapabilityProbe.IMAGE_PROMPT)
+                                append(context.getString(R.string.conversation_analyze_image_prompt))
                             }
-                        val response =
-                            collectResponse(
-                                listOf(PromptTurn(kind = PromptTurnKind.USER, content = prompt))
-                            )
-                        if (MediaCapabilityProbe.matchesImage(response)) {
-                            ModelConnectionTestOutcome.PASSED
-                        } else {
-                            ModelConnectionTestOutcome.UNVERIFIED
-                        }
+                        service.sendMessage(
+                            context,
+                            listOf(PromptTurn(kind = PromptTurnKind.USER, content = prompt)),
+                            parameters,
+                            stream = false,
+                            enableRetry = false
+                        ).collect { }
                     } finally {
                         ImagePoolManager.removeImage(imageId)
                         runCatching { imageFile.delete() }
@@ -207,8 +172,7 @@ object ModelConfigConnectionTester {
 
             if (configForTest.enableDirectAudioProcessing) {
                 runCase(ModelConnectionTestType.AUDIO) {
-                    val audioFile =
-                        AssetCopyUtils.copyAssetToCache(context, MediaCapabilityProbe.AUDIO_ASSET_PATH)
+                    val audioFile = AssetCopyUtils.copyAssetToCache(context, "test/1.mp3")
                     val audioId = MediaPoolManager.addMedia(audioFile.absolutePath, "audio/mpeg")
                     if (audioId == "error") {
                         throw IllegalStateException("Failed to create test audio")
@@ -218,17 +182,15 @@ object ModelConfigConnectionTester {
                             buildString {
                                 append(MediaLinkBuilder.audio(context, audioId))
                                 append("\n")
-                                append(MediaCapabilityProbe.AUDIO_PROMPT)
+                                append(context.getString(R.string.conversation_analyze_audio_prompt))
                             }
-                        val response =
-                            collectResponse(
-                                listOf(PromptTurn(kind = PromptTurnKind.USER, content = prompt))
-                            )
-                        if (MediaCapabilityProbe.matchesAudio(response)) {
-                            ModelConnectionTestOutcome.PASSED
-                        } else {
-                            ModelConnectionTestOutcome.UNVERIFIED
-                        }
+                        service.sendMessage(
+                            context,
+                            listOf(PromptTurn(kind = PromptTurnKind.USER, content = prompt)),
+                            parameters,
+                            stream = false,
+                            enableRetry = false
+                        ).collect { }
                     } finally {
                         MediaPoolManager.removeMedia(audioId)
                         runCatching { audioFile.delete() }
@@ -238,8 +200,7 @@ object ModelConfigConnectionTester {
 
             if (configForTest.enableDirectVideoProcessing) {
                 runCase(ModelConnectionTestType.VIDEO) {
-                    val videoFile =
-                        AssetCopyUtils.copyAssetToCache(context, MediaCapabilityProbe.VIDEO_ASSET_PATH)
+                    val videoFile = AssetCopyUtils.copyAssetToCache(context, "test/1.mp4")
                     val videoId = MediaPoolManager.addMedia(videoFile.absolutePath, "video/mp4")
                     if (videoId == "error") {
                         throw IllegalStateException("Failed to create test video")
@@ -249,17 +210,15 @@ object ModelConfigConnectionTester {
                             buildString {
                                 append(MediaLinkBuilder.video(context, videoId))
                                 append("\n")
-                                append(MediaCapabilityProbe.VIDEO_PROMPT)
+                                append(context.getString(R.string.conversation_analyze_video_prompt))
                             }
-                        val response =
-                            collectResponse(
-                                listOf(PromptTurn(kind = PromptTurnKind.USER, content = prompt))
-                            )
-                        if (MediaCapabilityProbe.matchesVideo(response)) {
-                            ModelConnectionTestOutcome.PASSED
-                        } else {
-                            ModelConnectionTestOutcome.UNVERIFIED
-                        }
+                        service.sendMessage(
+                            context,
+                            listOf(PromptTurn(kind = PromptTurnKind.USER, content = prompt)),
+                            parameters,
+                            stream = false,
+                            enableRetry = false
+                        ).collect { }
                     } finally {
                         MediaPoolManager.removeMedia(videoId)
                         runCatching { videoFile.delete() }
@@ -274,7 +233,7 @@ object ModelConfigConnectionTester {
                 items.add(
                     ModelConnectionTestItem(
                         type = ModelConnectionTestType.CHAT,
-                        outcome = ModelConnectionTestOutcome.FAILED,
+                        success = false,
                         error = e.message ?: "Unknown error"
                     )
                 )

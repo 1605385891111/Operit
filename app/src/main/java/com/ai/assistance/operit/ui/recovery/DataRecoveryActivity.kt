@@ -12,7 +12,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,8 +31,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Restore
@@ -68,22 +65,12 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.ai.assistance.operit.R
-import com.ai.assistance.operit.data.recovery.PreferencesHealthManager
-import com.ai.assistance.operit.data.recovery.RoomDatabaseHealthManager
 import com.ai.assistance.operit.ui.common.OperitUtilityTheme
-import com.ai.assistance.operit.util.LocaleUtils
 
 class DataRecoveryActivity : ComponentActivity() {
-    override fun attachBaseContext(newBase: Context) {
-        super.attachBaseContext(LocaleUtils.getLocalizedContext(newBase))
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
@@ -102,7 +89,6 @@ private fun DataRecoveryScreen() {
         viewModel(factory = DataRecoveryViewModel.Factory(context))
     val state by viewModel.state.collectAsState()
     var pendingRestoreUri by remember { mutableStateOf<Uri?>(null) }
-    var showHealthRepairConfirmation by remember { mutableStateOf(false) }
 
     val snapshotPicker =
         rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -114,7 +100,7 @@ private fun DataRecoveryScreen() {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.title_activity_data_recovery)) },
+                title = { Text("数据救援") },
                 colors =
                     TopAppBarDefaults.topAppBarColors(
                         containerColor = MaterialTheme.colorScheme.surface,
@@ -143,9 +129,9 @@ private fun DataRecoveryScreen() {
             }
 
             item {
-                RecoverySection(title = stringResource(R.string.data_recovery_raw_snapshot_section)) {
+                RecoverySection(title = "原始快照") {
                     Text(
-                        text = stringResource(R.string.data_recovery_raw_snapshot_description),
+                        text = "导出会打包内部 files、shared_prefs、datastore、databases 和 Android/data 包目录；导入会覆盖当前数据。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -157,7 +143,7 @@ private fun DataRecoveryScreen() {
                         ) {
                             Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text(stringResource(R.string.data_recovery_export_snapshot))
+                            Text("导出快照")
                         }
                         OutlinedButton(
                             onClick = { snapshotPicker.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) },
@@ -165,7 +151,7 @@ private fun DataRecoveryScreen() {
                         ) {
                             Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text(stringResource(R.string.data_recovery_import_snapshot))
+                            Text("导入快照")
                         }
                     }
                     state.lastSnapshotPath?.let { path ->
@@ -182,20 +168,17 @@ private fun DataRecoveryScreen() {
                         FilledTonalButton(onClick = { restartMainApp(context) }) {
                             Icon(Icons.Default.RestartAlt, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text(stringResource(R.string.data_recovery_start_main_app))
+                            Text("启动主应用")
                         }
                     }
                 }
             }
 
             item {
-                RecoverySection(title = stringResource(R.string.data_recovery_file_management)) {
+                RecoverySection(title = "文件管理") {
                     val authority = "${context.packageName}.documents.data"
                     Text(
-                        text = stringResource(
-                            R.string.data_recovery_file_management_description,
-                            authority
-                        ),
+                        text = "此页不直接打开文件管理器。需要手动查看或导出内部文件时，可以打开 MT 管理器，添加「本地存储仓库」，选择 Operit 的数据仓库后再管理。provider: $authority",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -203,28 +186,28 @@ private fun DataRecoveryScreen() {
             }
 
             item {
-                RecoverySection(title = stringResource(R.string.data_recovery_sql_executor)) {
+                RecoverySection(title = "SQL 执行器") {
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         AssistChip(
                             onClick = { viewModel.setSqlText(DataRecoveryViewModel.SAFE_MESSAGES_QUERY) },
-                            label = { Text(stringResource(R.string.data_recovery_messages_size)) },
+                            label = { Text("messages 大小") },
                             leadingIcon = {
                                 Icon(Icons.Default.Storage, contentDescription = null, modifier = Modifier.size(18.dp))
                             }
                         )
                         AssistChip(
                             onClick = { viewModel.setSqlText(DataRecoveryViewModel.SAFE_VARIANTS_QUERY) },
-                            label = { Text(stringResource(R.string.data_recovery_variants_size)) },
+                            label = { Text("variants 大小") },
                             leadingIcon = {
                                 Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
                             }
                         )
                         AssistChip(
                             onClick = { viewModel.setSqlText(DataRecoveryViewModel.SAFE_CHATS_QUERY) },
-                            label = { Text(stringResource(R.string.data_recovery_chats_fields)) },
+                            label = { Text("chats 字段") },
                             leadingIcon = {
                                 Icon(Icons.Default.Storage, contentDescription = null, modifier = Modifier.size(18.dp))
                             }
@@ -236,7 +219,7 @@ private fun DataRecoveryScreen() {
                         onValueChange = viewModel::setSqlText,
                         modifier = Modifier.fillMaxWidth(),
                         textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                        label = { Text(stringResource(R.string.data_recovery_sql_label)) },
+                        label = { Text("SQL") },
                         minLines = 4,
                         maxLines = 8
                     )
@@ -247,145 +230,7 @@ private fun DataRecoveryScreen() {
                     ) {
                         Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text(stringResource(R.string.data_recovery_execute))
-                    }
-                }
-            }
-
-            item {
-                RecoverySection(title = stringResource(R.string.data_recovery_database_health_section)) {
-                    Text(
-                        text = stringResource(R.string.data_recovery_database_health_description),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = { viewModel.inspectStorage() },
-                            enabled = !state.isRunning
-                        ) {
-                            Icon(
-                                Icons.Default.Storage,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(stringResource(R.string.data_recovery_database_check_action))
-                        }
-                        Button(
-                            onClick = { showHealthRepairConfirmation = true },
-                            enabled =
-                                !state.isRunning &&
-                                    (state.configurationHealthReport?.canRepair == true ||
-                                        state.databaseHealthReport?.canRepair == true)
-                        ) {
-                            Icon(
-                                Icons.Default.Restore,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(stringResource(R.string.data_recovery_database_repair_action))
-                        }
-                    }
-
-                    val configurationReport = state.configurationHealthReport
-                    val databaseReport = state.databaseHealthReport
-                    if (configurationReport != null && databaseReport != null) {
-                        Spacer(modifier = Modifier.height(12.dp))
-                        ConfigurationAndDatabaseHealthReport(
-                            configurationReport = configurationReport,
-                            databaseReport = databaseReport
-                        )
-                        if (configurationReport.canRepair || databaseReport.canRepair) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = stringResource(R.string.data_recovery_database_repair_plan),
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            if (configurationReport.canRepair) {
-                                Text(
-                                    text =
-                                        "• " +
-                                            stringResource(
-                                                R.string.data_recovery_configuration_repair_reset_files,
-                                                configurationReport.repairableFileNames.size
-                                            ),
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                            }
-                            databaseReport.repairActions.forEach { action ->
-                                val label =
-                                    when (action) {
-                                        RoomDatabaseHealthManager.RepairAction.REBUILD_INDEXES ->
-                                            stringResource(
-                                                R.string.data_recovery_database_repair_rebuild_indexes
-                                            )
-                                        RoomDatabaseHealthManager.RepairAction.RUN_ROOM_MIGRATIONS ->
-                                            stringResource(
-                                                R.string.data_recovery_database_repair_run_migrations
-                                            )
-                                    }
-                                Text(
-                                    text = "• $label",
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                            }
-                        }
-                    }
-
-                    state.lastConfigurationRepairArchivePath?.let { path ->
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text(
-                            text = stringResource(R.string.data_recovery_configuration_repair_archive),
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        SelectionContainer {
-                            Text(
-                                text = path,
-                                style =
-                                    MaterialTheme.typography.bodySmall.copy(
-                                        fontFamily = FontFamily.Monospace
-                                    )
-                            )
-                        }
-                    }
-
-                    state.lastDatabaseRepairArchivePath?.let { path ->
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text(
-                            text = stringResource(R.string.data_recovery_database_repair_archive),
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        SelectionContainer {
-                            Text(
-                                text = path,
-                                style =
-                                    MaterialTheme.typography.bodySmall.copy(
-                                        fontFamily = FontFamily.Monospace
-                                    )
-                            )
-                        }
-                    }
-
-                    if (state.healthRepairCompleted) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        FilledTonalButton(onClick = { restartMainApp(context) }) {
-                            Icon(
-                                Icons.Default.RestartAlt,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(stringResource(R.string.data_recovery_start_main_app))
-                        }
+                        Text("执行")
                     }
                 }
             }
@@ -403,8 +248,8 @@ private fun DataRecoveryScreen() {
     pendingRestoreUri?.let { uri ->
         AlertDialog(
             onDismissRequest = { pendingRestoreUri = null },
-            title = { Text(stringResource(R.string.data_recovery_import_snapshot_title)) },
-            text = { Text(stringResource(R.string.data_recovery_import_snapshot_message)) },
+            title = { Text("导入原始快照") },
+            text = { Text("导入会覆盖当前应用数据。确认导入这个快照？") },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -412,187 +257,15 @@ private fun DataRecoveryScreen() {
                         viewModel.restoreRawSnapshot(uri)
                     }
                 ) {
-                    Text(stringResource(R.string.data_recovery_import_action))
+                    Text("导入")
                 }
             },
             dismissButton = {
                 TextButton(onClick = { pendingRestoreUri = null }) {
-                    Text(stringResource(R.string.data_recovery_cancel_action))
+                    Text("取消")
                 }
             }
         )
-    }
-
-    if (showHealthRepairConfirmation) {
-        AlertDialog(
-            onDismissRequest = { showHealthRepairConfirmation = false },
-            title = { Text(stringResource(R.string.data_recovery_database_repair_confirm_title)) },
-            text = { Text(stringResource(R.string.data_recovery_database_repair_confirm_message)) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showHealthRepairConfirmation = false
-                        viewModel.repairStorage()
-                    }
-                ) {
-                    Text(stringResource(R.string.data_recovery_database_repair_confirm_action))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showHealthRepairConfirmation = false }) {
-                    Text(stringResource(R.string.data_recovery_cancel_action))
-                }
-            }
-        )
-    }
-}
-
-@Composable
-private fun ConfigurationAndDatabaseHealthReport(
-    configurationReport: PreferencesHealthManager.Report,
-    databaseReport: RoomDatabaseHealthManager.Report
-) {
-    var expanded by remember(configurationReport, databaseReport) { mutableStateOf(false) }
-    val requiresManualRecovery =
-        configurationReport.status == PreferencesHealthManager.Status.MANUAL_RECOVERY_REQUIRED ||
-            databaseReport.status == RoomDatabaseHealthManager.Status.MANUAL_RECOVERY_REQUIRED
-    val needsRepair =
-        configurationReport.status == PreferencesHealthManager.Status.NEEDS_REPAIR ||
-            databaseReport.status == RoomDatabaseHealthManager.Status.NEEDS_REPAIR
-    val summaryColor =
-        when {
-            requiresManualRecovery -> MaterialTheme.colorScheme.error
-            needsRepair -> MaterialTheme.colorScheme.tertiary
-            else -> MaterialTheme.colorScheme.primary
-        }
-    val summary =
-        stringResource(
-            when {
-                requiresManualRecovery -> R.string.data_recovery_database_summary_manual
-                needsRepair -> R.string.data_recovery_database_summary_repairable
-                else -> R.string.data_recovery_database_summary_healthy
-            }
-        )
-    val passedCount =
-        configurationReport.checks.count { it.status == PreferencesHealthManager.ItemStatus.PASS } +
-            databaseReport.checks.count { it.status == RoomDatabaseHealthManager.ItemStatus.PASS }
-    val totalCount = configurationReport.checks.size + databaseReport.checks.size
-    val firstProblem =
-        configurationReport.checks
-            .firstOrNull { it.status == PreferencesHealthManager.ItemStatus.FAILURE }
-            ?.detail
-            ?: databaseReport.checks
-                .firstOrNull { it.status == RoomDatabaseHealthManager.ItemStatus.FAILURE }
-                ?.detail
-            ?: configurationReport.checks
-                .firstOrNull { it.status == PreferencesHealthManager.ItemStatus.WARNING }
-                ?.detail
-            ?: databaseReport.checks
-                .firstOrNull { it.status == RoomDatabaseHealthManager.ItemStatus.WARNING }
-                ?.detail
-
-    Surface(
-        modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
-        color = summaryColor.copy(alpha = 0.08f),
-        shape = MaterialTheme.shapes.small
-    ) {
-        Column(modifier = Modifier.padding(10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = summary,
-                        style = MaterialTheme.typography.titleSmall,
-                        color = summaryColor
-                    )
-                    Text(
-                        text =
-                            stringResource(
-                                R.string.data_recovery_database_checks_passed,
-                                passedCount,
-                                totalCount
-                            ),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Icon(
-                    imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            firstProblem?.let { problem ->
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = stringResource(R.string.data_recovery_database_problem_summary, problem),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = summaryColor
-                )
-            }
-
-            if (expanded) {
-                Spacer(modifier = Modifier.height(10.dp))
-                Text(
-                    text = stringResource(R.string.data_recovery_configuration_details),
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold
-                )
-                configurationReport.checks.forEach { item ->
-                    val itemColor =
-                        when (item.status) {
-                            PreferencesHealthManager.ItemStatus.PASS -> MaterialTheme.colorScheme.primary
-                            PreferencesHealthManager.ItemStatus.WARNING -> MaterialTheme.colorScheme.tertiary
-                            PreferencesHealthManager.ItemStatus.FAILURE -> MaterialTheme.colorScheme.error
-                        }
-                    HealthCheckDetail(item.title, item.detail, itemColor)
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = stringResource(R.string.data_recovery_database_details),
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold
-                )
-                SelectionContainer {
-                    Text(
-                        text = databaseReport.databasePath,
-                        style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                databaseReport.checks.forEach { item ->
-                    val itemColor =
-                        when (item.status) {
-                            RoomDatabaseHealthManager.ItemStatus.PASS -> MaterialTheme.colorScheme.primary
-                            RoomDatabaseHealthManager.ItemStatus.WARNING -> MaterialTheme.colorScheme.tertiary
-                            RoomDatabaseHealthManager.ItemStatus.FAILURE -> MaterialTheme.colorScheme.error
-                        }
-                    HealthCheckDetail(item.title, item.detail, itemColor)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun HealthCheckDetail(title: String, detail: String, color: androidx.compose.ui.graphics.Color) {
-    Surface(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-        color = color.copy(alpha = 0.08f),
-        shape = MaterialTheme.shapes.small
-    ) {
-        Column(modifier = Modifier.padding(8.dp)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.labelLarge,
-                color = color,
-                fontWeight = FontWeight.SemiBold
-            )
-            SelectionContainer {
-                Text(text = detail, style = MaterialTheme.typography.bodySmall)
-            }
-        }
     }
 }
 
@@ -618,7 +291,7 @@ private fun StatusPanel(
             }
             Column {
                 Text(
-                    text = error ?: status ?: stringResource(R.string.data_recovery_started),
+                    text = error ?: status ?: "救援进程已启动",
                     style = MaterialTheme.typography.bodyMedium,
                     color =
                         if (error != null) {
@@ -629,7 +302,7 @@ private fun StatusPanel(
                 )
                 affectedRows?.let {
                     Text(
-                        text = stringResource(R.string.data_recovery_affected_rows, it),
+                        text = "受影响行数：$it",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -662,7 +335,7 @@ private fun RecoverySection(
 
 @Composable
 private fun QueryResultPanel(result: DataRecoveryViewModel.QueryResult) {
-    RecoverySection(title = stringResource(R.string.data_recovery_query_result, result.rows.size)) {
+    RecoverySection(title = "查询结果 ${result.rows.size} 行") {
         val horizontalScrollState = rememberScrollState()
         Box(
             modifier =
@@ -717,7 +390,7 @@ private fun ResultRow(values: List<String>, header: Boolean) {
 private fun restartMainApp(context: Context) {
     val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
     if (intent == null) {
-        Toast.makeText(context, context.getString(R.string.data_recovery_launch_failed), Toast.LENGTH_LONG).show()
+        Toast.makeText(context, "无法启动主应用", Toast.LENGTH_LONG).show()
         return
     }
     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)

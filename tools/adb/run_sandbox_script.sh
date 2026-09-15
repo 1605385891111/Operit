@@ -36,49 +36,6 @@ if ! command -v adb >/dev/null 2>&1; then
     exit 1
 fi
 
-resolve_app_package() {
-    # Script-mode files and broadcasts must share the selected APK's application-scoped directory.
-    local configured_package="${OPERIT_APP_PACKAGE:-}"
-    local candidate
-
-    if [ -n "$configured_package" ]; then
-        case "$configured_package" in
-            com.ai.assistance.operit.debug|com.ai.assistance.operit)
-                ;;
-            *)
-                echo "Error: Unsupported Operit application package - $configured_package"
-                return 1
-                ;;
-        esac
-        if ! adb -s "$DEVICE_SERIAL" shell pm list packages "$configured_package" |
-            tr -d '\r' | grep -Fxq "package:$configured_package"; then
-            echo "Error: Operit application package is not installed - $configured_package"
-            return 1
-        fi
-        APP_PACKAGE="$configured_package"
-    else
-        APP_PACKAGE=""
-        for candidate in \
-            com.ai.assistance.operit.debug \
-            com.ai.assistance.operit
-        do
-            if adb -s "$DEVICE_SERIAL" shell pm list packages "$candidate" |
-                tr -d '\r' | grep -Fxq "package:$candidate"; then
-                APP_PACKAGE="$candidate"
-                break
-            fi
-        done
-        if [ -z "$APP_PACKAGE" ]; then
-            echo "Error: Neither supported Operit application package is installed"
-            return 1
-        fi
-    fi
-
-    EXECUTE_JS_ACTION="com.ai.assistance.operit.EXECUTE_JS"
-    SCRIPT_EXECUTION_RECEIVER="${APP_PACKAGE}/.core.tools.javascript.ScriptExecutionReceiver"
-    echo "Using Operit application package: $APP_PACKAGE"
-}
-
 echo "Checking connected devices..."
 mapfile -t DEVICE_LIST < <(adb devices | awk 'NR>1 && $2=="device" {print $1}')
 DEVICE_COUNT=${#DEVICE_LIST[@]}
@@ -118,10 +75,6 @@ else
     done
 fi
 
-if ! resolve_app_package; then
-    exit 1
-fi
-
 prepare_params_file() {
     PARAMS_PREVIEW="$PARAMS_ARG"
     PARAMS_LOCAL_TEMP=false
@@ -147,7 +100,7 @@ cleanup_local_params() {
 }
 
 echo "Creating directory structure..."
-TARGET_DIR="/sdcard/Android/data/$APP_PACKAGE/js_temp"
+TARGET_DIR="/sdcard/Android/data/com.ai.assistance.operit/js_temp"
 adb -s "$DEVICE_SERIAL" shell mkdir -p "$TARGET_DIR"
 TARGET_FILE="$TARGET_DIR/$(basename "$FILE_PATH")"
 RESULT_STEM="$(printf "%s_%s" "$(basename "$FILE_PATH")" "$(date +%s)" | tr -c 'A-Za-z0-9._-' '_')"
@@ -195,9 +148,9 @@ adb -s "$DEVICE_SERIAL" shell rm -f "$TARGET_RESULT_FILE"
 
 echo "Running sandbox script with params source: $TARGET_PARAMS_FILE"
 if [ "$HAS_ENV_FILE" = "true" ]; then
-    adb -s "$DEVICE_SERIAL" shell "am broadcast -a $EXECUTE_JS_ACTION -n $SCRIPT_EXECUTION_RECEIVER --include-stopped-packages --es execution_mode 'script' --es file_path '$TARGET_FILE' --es params_file_path '$TARGET_PARAMS_FILE' --es env_file_path '$TARGET_ENV_FILE' --es result_file_path '$TARGET_RESULT_FILE' --ez temp_file true --ez temp_params_file true --ez temp_env_file true"
+    adb -s "$DEVICE_SERIAL" shell "am broadcast -a com.ai.assistance.operit.EXECUTE_JS -n com.ai.assistance.operit/.core.tools.javascript.ScriptExecutionReceiver --include-stopped-packages --es execution_mode 'script' --es file_path '$TARGET_FILE' --es params_file_path '$TARGET_PARAMS_FILE' --es env_file_path '$TARGET_ENV_FILE' --es result_file_path '$TARGET_RESULT_FILE' --ez temp_file true --ez temp_params_file true --ez temp_env_file true"
 else
-    adb -s "$DEVICE_SERIAL" shell "am broadcast -a $EXECUTE_JS_ACTION -n $SCRIPT_EXECUTION_RECEIVER --include-stopped-packages --es execution_mode 'script' --es file_path '$TARGET_FILE' --es params_file_path '$TARGET_PARAMS_FILE' --es result_file_path '$TARGET_RESULT_FILE' --ez temp_file true --ez temp_params_file true"
+    adb -s "$DEVICE_SERIAL" shell "am broadcast -a com.ai.assistance.operit.EXECUTE_JS -n com.ai.assistance.operit/.core.tools.javascript.ScriptExecutionReceiver --include-stopped-packages --es execution_mode 'script' --es file_path '$TARGET_FILE' --es params_file_path '$TARGET_PARAMS_FILE' --es result_file_path '$TARGET_RESULT_FILE' --ez temp_file true --ez temp_params_file true"
 fi
 if [ $? -ne 0 ]; then
     cleanup_local_params

@@ -43,7 +43,6 @@ kotlinx-serialization = "1.9.0"
 uuid = "0.8.2"
 gson = "2.10.1"
 hjson = "3.0.0"
-json = "20250517"
 jieba = "1.0.2"
 hnswlib = "0.0.46"
 tensorflow = "2.10.0"
@@ -172,7 +171,6 @@ kotlin-reflect = { group = "org.jetbrains.kotlin", name = "kotlin-reflect", vers
 uuid = { group = "com.benasher44", name = "uuid", version.ref = "uuid" }
 gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
 hjson = { group = "org.hjson", name = "hjson", version.ref = "hjson" }
-json-jvm = { group = "org.json", name = "json", version.ref = "json" }
 
 # NLP
 jieba = { group = "com.huaban", name = "jieba-analysis", version.ref = "jieba" }

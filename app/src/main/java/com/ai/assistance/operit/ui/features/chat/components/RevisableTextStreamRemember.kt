@@ -7,9 +7,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.ai.assistance.operit.util.stream.MutableSharedStream
-import com.ai.assistance.operit.util.stream.MutableSharedStreamImpl
 import com.ai.assistance.operit.util.stream.Stream
-import com.ai.assistance.operit.util.stream.StreamRollbackPrefix
 import com.ai.assistance.operit.util.stream.TextStreamEventCarrier
 import com.ai.assistance.operit.util.stream.TextStreamEventType
 import com.ai.assistance.operit.util.stream.TextStreamRevisionTracker
@@ -18,11 +16,6 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-
-private class RollbackTailStream(
-    private val upstream: Stream<String>,
-    override val rollbackPrefix: String,
-) : Stream<String> by upstream, StreamRollbackPrefix
 
 @Composable
 fun rememberRevisableTextStream(sourceStream: Stream<String>?): Stream<String>? {
@@ -35,8 +28,8 @@ fun rememberRevisableTextStream(sourceStream: Stream<String>?): Stream<String>? 
     LaunchedEffect(sourceStream) {
         val tracker = TextStreamRevisionTracker()
         val stateMutex = Mutex()
-        var currentOutputStream = MutableSharedStream<String>(replay = Int.MAX_VALUE)
-        displayStream = currentOutputStream
+        var currentDisplayStream = MutableSharedStream<String>(replay = Int.MAX_VALUE)
+        displayStream = currentDisplayStream
 
         coroutineScope {
             val eventJob = launch {
@@ -49,25 +42,19 @@ fun rememberRevisableTextStream(sourceStream: Stream<String>?): Stream<String>? 
                         }
 
                         TextStreamEventType.ROLLBACK -> {
-                            val rollbackUpdate =
+                            val snapshot =
                                 stateMutex.withLock {
-                                    val snapshot = tracker.rollback(event.id)?.toString()
-                                        ?: return@withLock null
-                                    val replacementStream =
-                                        MutableSharedStream<String>(replay = Int.MAX_VALUE)
-                                    val previousOutputStream = currentOutputStream
-                                    currentOutputStream = replacementStream
-                                    Triple(previousOutputStream, replacementStream, snapshot)
+                                    tracker.rollback(event.id)?.toString()
                                 } ?: return@collect
-                            val (previousOutputStream, replacementStream, snapshot) = rollbackUpdate
-                            // The renderer restores this prefix itself; the replacement stream carries only new tail output.
-                            val rollbackStream =
-                                RollbackTailStream(
-                                    upstream = replacementStream,
-                                    rollbackPrefix = snapshot,
-                                )
-                            displayStream = rollbackStream
-                            previousOutputStream.resetReplayCache()
+                            val previousDisplayStream = currentDisplayStream
+                            val replacementStream =
+                                MutableSharedStream<String>(replay = Int.MAX_VALUE)
+                            if (snapshot.isNotEmpty()) {
+                                replacementStream.emit(snapshot)
+                            }
+                            currentDisplayStream = replacementStream
+                            displayStream = replacementStream
+                            previousDisplayStream.resetReplayCache()
                         }
                     }
                 }
@@ -78,15 +65,14 @@ fun rememberRevisableTextStream(sourceStream: Stream<String>?): Stream<String>? 
                     val activeDisplayStream =
                         stateMutex.withLock {
                             tracker.append(chunk)
-                            currentOutputStream
+                            currentDisplayStream
                         }
                     activeDisplayStream.emit(chunk)
                 }
             } finally {
                 eventJob.cancelAndJoin()
-                // Keep completed replay available until the message switches to static content.
-                // Clearing it here can race the renderer's final frame and leave a tool result blank.
-                (currentOutputStream as? MutableSharedStreamImpl<String>)?.close()
+                currentDisplayStream.resetReplayCache()
+                displayStream = null
             }
         }
     }

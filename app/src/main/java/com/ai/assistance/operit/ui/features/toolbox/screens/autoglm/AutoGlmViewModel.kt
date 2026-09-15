@@ -196,7 +196,7 @@ class AutoGlmViewModel(private val context: Context) : ViewModel() {
     }
 
     private fun buildUiAutomationSystemPrompt(): String {
-        val useEnglish = !LocaleUtils.usesChineseContent(context)
+        val useEnglish = LocaleUtils.getCurrentLanguage(context).lowercase().startsWith("en")
         val formattedDate =
             if (useEnglish) {
                 SimpleDateFormat("yyyy-MM-dd EEEE", Locale.ENGLISH).format(Date())

@@ -4,7 +4,6 @@ import com.ai.assistance.operit.core.application.OperitApplication
 import com.ai.assistance.operit.core.tools.AIToolHandler
 import com.ai.assistance.operit.core.tools.packTool.PackageManager
 import com.ai.assistance.operit.core.tools.packTool.ToolPkgContainerRuntime
-import com.ai.assistance.operit.plugins.toolpkg.sortedByToolPkgLoadOrder
 import com.ai.assistance.operit.plugins.OperitPlugin
 import com.ai.assistance.operit.plugins.lifecycle.AppLifecycleEvent
 import com.ai.assistance.operit.plugins.lifecycle.AppLifecycleHookParams
@@ -61,10 +60,11 @@ private object ToolPkgAppLifecycleHookPlugin : AppLifecycleHookPlugin {
                 }
                 .groupBy { hook -> hook.event.trim().lowercase() }
                 .mapValues { (_, hooks) ->
-                    hooks.sortedByToolPkgLoadOrder(
-                        activeContainers = activeContainers,
-                        containerPackageName = ToolPkgAppLifecycleHookRegistration::containerPackageName,
-                        registrationId = ToolPkgAppLifecycleHookRegistration::hookId
+                    hooks.sortedWith(
+                        compareBy(
+                            ToolPkgAppLifecycleHookRegistration::containerPackageName,
+                            ToolPkgAppLifecycleHookRegistration::hookId
+                        )
                     )
                 }
         hooksByEvent = nextHooksByEvent

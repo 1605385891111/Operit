@@ -16,11 +16,6 @@ class MarkdownPlainTextRendererAndroidTest {
         latexToPlainText: (List<String>) -> List<String> = { it },
     ): String = runBlocking { markdownToPlainTextForCopy(markdown, latexToPlainText) }
 
-    @Test fun markdownToPlainTextForCopy_preservesSingleLineUserText() {
-        assertEquals("3", render("3"))
-        assertEquals("plain user message", render("plain user message"))
-    }
-
     @Test fun markdownToPlainTextForCopy_removesFormattingMarkers() {
         val content =
             """

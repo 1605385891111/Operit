@@ -403,8 +403,7 @@ internal fun buildExecutionRuntimeBridgeScript(): String {
                 scriptText,
                 targetFunctionName,
                 timeoutSec,
-                preTimeoutMs,
-                toolPkgApi
+                preTimeoutMs
             ) {
                 var registerCallSession =
                     typeof root.__operitRegisterCallSession === 'function'
@@ -425,7 +424,7 @@ internal fun buildExecutionRuntimeBridgeScript(): String {
                 var safePreTimeoutMs = hasTimeout
                     ? Math.max(1000, Number(preTimeoutMs) || 1000)
                     : null;
-                var callState = registerCallSession(callId, params, toolPkgApi);
+                var callState = registerCallSession(callId, params);
                 var previousCallId = root.__operitCurrentCallId;
                 var previousCallRuntime = root.__operit_call_runtime_ref;
                 root.__operitCurrentCallId = callId;

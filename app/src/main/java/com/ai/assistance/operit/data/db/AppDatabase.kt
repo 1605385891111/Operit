@@ -1,7 +1,6 @@
 package com.ai.assistance.operit.data.db
 
 import android.content.Context
-import android.database.sqlite.SQLiteDatabase
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
@@ -11,43 +10,29 @@ import com.ai.assistance.operit.data.dao.ChatContentDao
 import com.ai.assistance.operit.data.dao.ChatDao
 import com.ai.assistance.operit.data.dao.MessageDao
 import com.ai.assistance.operit.data.dao.MessageVariantDao
-import com.ai.assistance.operit.data.dao.TokenUsageDao
 import com.ai.assistance.operit.data.model.ChatEntity
 import com.ai.assistance.operit.data.model.MessageEntity
 import com.ai.assistance.operit.data.model.MessageVariantEntity
-import com.ai.assistance.operit.data.model.TokenStatsModelEntity
-import com.ai.assistance.operit.data.model.TokenUsageRecordEntity
-import com.ai.assistance.operit.util.AppLogger
-import java.io.File
-import java.util.UUID
-
-private const val APP_DATABASE_VERSION = 21
 
 /** 应用数据库，包含聊天表和消息表 */
 @Database(
-    entities = [
-        ChatEntity::class,
-        MessageEntity::class,
-        MessageVariantEntity::class,
-        TokenUsageRecordEntity::class,
-        TokenStatsModelEntity::class,
-    ],
-    version = APP_DATABASE_VERSION,
+    entities = [ChatEntity::class, MessageEntity::class, MessageVariantEntity::class],
+    version = 20,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
+
     /** 获取聊天DAO */
     abstract fun chatDao(): ChatDao
 
     /** 获取消息DAO */
     abstract fun messageDao(): MessageDao
+
     abstract fun messageVariantDao(): MessageVariantDao
+
     abstract fun chatContentDao(): ChatContentDao
-    abstract fun tokenUsageDao(): TokenUsageDao
 
     companion object {
-        const val DATABASE_VERSION = APP_DATABASE_VERSION
-
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
@@ -236,121 +221,6 @@ abstract class AppDatabase : RoomDatabase() {
                 }
             }
 
-        /** v20 -> v21: token statistics schema and Room-declared message indexes. */
-        internal val MIGRATION_20_21 =
-            object : Migration(20, 21) {
-                override fun migrate(db: SupportSQLiteDatabase) {
-                    runSql { db.execSQL(it) }
-                }
-
-                override fun migrate(connection: androidx.sqlite.SQLiteConnection) {
-                    runSql { sql ->
-                        val stmt = connection.prepare(sql)
-                        try {
-                            stmt.step()
-                        } finally {
-                            stmt.close()
-                        }
-                    }
-                }
-
-                private fun runSql(exec: (String) -> Unit) {
-                    // Released v20 databases created before MessageEntity declared indexes still need
-                    // these exact indexes before Room validates the migrated schema.
-                    exec(
-                        "CREATE INDEX IF NOT EXISTS `index_messages_chatId` " +
-                            "ON `messages` (`chatId`)"
-                    )
-                    exec(
-                        "CREATE INDEX IF NOT EXISTS `index_messages_chatId_timestamp` " +
-                            "ON `messages` (`chatId`, `timestamp`)"
-                    )
-                    exec(
-                        """
-                        CREATE TABLE IF NOT EXISTS `token_usage_records` (
-                            `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-                            `importKey` TEXT,
-                            `occurredAtMs` INTEGER,
-                            `configId` TEXT NOT NULL,
-                            `provider` TEXT NOT NULL,
-                            `model` TEXT NOT NULL,
-                            `requestCount` INTEGER NOT NULL DEFAULT 1,
-                            `uncachedInputTokens` INTEGER,
-                            `cachedInputTokens` INTEGER,
-                            `cacheWriteTokens` INTEGER,
-                            `totalInputTokens` INTEGER,
-                            `outputTokens` INTEGER
-                        )
-                        """.trimIndent()
-                    )
-                    exec(
-                        "CREATE INDEX IF NOT EXISTS `index_token_usage_records_occurredAtMs` " +
-                            "ON `token_usage_records` (`occurredAtMs`)"
-                    )
-                    exec(
-                        "CREATE INDEX IF NOT EXISTS " +
-                            "`index_token_usage_records_provider_model_configId_occurredAtMs` " +
-                            "ON `token_usage_records` " +
-                            "(`provider`, `model`, `configId`, `occurredAtMs`)"
-                    )
-                    exec(
-                        """
-                        CREATE TABLE IF NOT EXISTS `token_stats_models` (
-                            `configId` TEXT NOT NULL,
-                            `provider` TEXT NOT NULL,
-                            `model` TEXT NOT NULL,
-                            `billingMode` TEXT,
-                            `currency` TEXT,
-                            `inputPricePerMillion` REAL,
-                            `cachedInputPricePerMillion` REAL,
-                            `cacheWritePricePerMillion` REAL,
-                            `outputPricePerMillion` REAL,
-                            `pricePerRequest` REAL,
-                            PRIMARY KEY(`configId`, `provider`, `model`)
-                        )
-                        """.trimIndent()
-                    )
-                    exec(
-                        "CREATE UNIQUE INDEX IF NOT EXISTS `index_token_usage_records_importKey` " +
-                            "ON `token_usage_records` (`importKey`)"
-                    )
-                    // Preserve token-bearing history before the new ledger starts recording requests.
-                    exec(
-                        """
-                        INSERT INTO `token_usage_records` (
-                            `occurredAtMs`, `configId`, `provider`, `model`,
-                            `requestCount`, `uncachedInputTokens`, `cachedInputTokens`, `totalInputTokens`, `outputTokens`
-                        )
-                        SELECT
-                            `timestamp`, '', `provider`, `modelName`, 1,
-                            MAX(`inputTokens` - `cachedInputTokens`, 0), `cachedInputTokens`,
-                            `inputTokens`, `outputTokens`
-                        FROM `messages`
-                        WHERE `sender` = 'ai'
-                            AND TRIM(`provider`) <> ''
-                            AND TRIM(`modelName`) <> ''
-                            AND (`inputTokens` > 0 OR `cachedInputTokens` > 0 OR `outputTokens` > 0)
-                        """.trimIndent()
-                    )
-                    exec(
-                        """
-                        INSERT INTO `token_usage_records` (
-                            `occurredAtMs`, `configId`, `provider`, `model`,
-                            `requestCount`, `uncachedInputTokens`, `cachedInputTokens`, `totalInputTokens`, `outputTokens`
-                        )
-                        SELECT
-                            `messageTimestamp`, '', `provider`, `modelName`, 1,
-                            MAX(`inputTokens` - `cachedInputTokens`, 0), `cachedInputTokens`,
-                            `inputTokens`, `outputTokens`
-                        FROM `message_variants`
-                        WHERE TRIM(`provider`) <> ''
-                            AND TRIM(`modelName`) <> ''
-                            AND (`inputTokens` > 0 OR `cachedInputTokens` > 0 OR `outputTokens` > 0)
-                        """.trimIndent()
-                    )
-                }
-            }
-
         // 定义从版本2到3的迁移
         private val MIGRATION_2_3 =
             object : Migration(2, 3) {
@@ -442,108 +312,38 @@ abstract class AppDatabase : RoomDatabase() {
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE
                 ?: synchronized(this) {
-                    val instance = buildDatabase(context.applicationContext, "app_database")
+                    val instance =
+                        Room.databaseBuilder(
+                            context.applicationContext,
+                            AppDatabase::class.java,
+                            "app_database"
+                        )
+                            .addMigrations(
+                                MIGRATION_1_2,
+                                MIGRATION_2_3,
+                                MIGRATION_3_4,
+                                MIGRATION_4_5,
+                                MIGRATION_5_6,
+                                MIGRATION_6_7,
+                                MIGRATION_7_8,
+                                MIGRATION_8_9,
+                                MIGRATION_9_10,
+                                MIGRATION_10_11,
+                                MIGRATION_11_12,
+                                MIGRATION_12_13,
+                                MIGRATION_13_14,
+                                MIGRATION_14_15,
+                                MIGRATION_15_16,
+                                MIGRATION_16_17,
+                                MIGRATION_17_18,
+                                MIGRATION_18_19,
+                                MIGRATION_19_20
+                            ) // 添加新的迁移
+                            .build()
                     INSTANCE = instance
                     instance
                 }
         }
-
-        /**
-         * Opens a private copy through Room so the recovery UI can validate the complete schema
-         * and migration chain without modifying the live database.
-         */
-        internal fun validateRecoveryCopy(context: Context, sourceDatabase: File): Boolean {
-            if (!sourceDatabase.isFile) return false
-            val appContext = context.applicationContext
-            val validationName =
-                "room_health_validation_${UUID.randomUUID().toString().replace("-", "")}"
-            val validationDatabase = appContext.getDatabasePath(validationName)
-            validationDatabase.parentFile?.mkdirs()
-
-            return try {
-                sourceDatabase.copyTo(validationDatabase, overwrite = false)
-                databaseFiles(sourceDatabase).drop(1).forEach { sourceSidecar ->
-                    if (sourceSidecar.exists()) {
-                        check(sourceSidecar.isFile) {
-                            "Room validation sidecar is not a file: ${sourceSidecar.name}"
-                        }
-                        val suffix = sourceSidecar.name.removePrefix(sourceDatabase.name)
-                        sourceSidecar.copyTo(
-                            File(validationDatabase.absolutePath + suffix),
-                            overwrite = false
-                        )
-                    }
-                }
-
-                // Removing the identity table from the isolated copy forces Room to compare the
-                // actual tables, columns, foreign keys, and indexes instead of trusting one hash.
-                SQLiteDatabase.openDatabase(
-                    validationDatabase.absolutePath,
-                    null,
-                    SQLiteDatabase.OPEN_READWRITE
-                ).use { database ->
-                    database.execSQL("DROP TABLE IF EXISTS `room_master_table`")
-                }
-
-                val database = buildDatabase(appContext, validationName)
-                try {
-                    database.openHelper.writableDatabase
-                    true
-                } finally {
-                    database.close()
-                }
-            } catch (e: Exception) {
-                AppLogger.e("AppDatabase", "Room recovery copy validation failed", e)
-                false
-            } finally {
-                databaseFiles(validationDatabase).forEach { file ->
-                    if (file.exists() && !file.deleteRecursively()) {
-                        AppLogger.w(
-                            "AppDatabase",
-                            "Failed to delete Room validation file: ${file.name}"
-                        )
-                    }
-                }
-            }
-        }
-
-        private fun buildDatabase(context: Context, databaseName: String): AppDatabase =
-            Room.databaseBuilder(
-                context,
-                AppDatabase::class.java,
-                databaseName
-            )
-                .addMigrations(
-                    MIGRATION_1_2,
-                    MIGRATION_2_3,
-                    MIGRATION_3_4,
-                    MIGRATION_4_5,
-                    MIGRATION_5_6,
-                    MIGRATION_6_7,
-                    MIGRATION_7_8,
-                    MIGRATION_8_9,
-                    MIGRATION_9_10,
-                    MIGRATION_10_11,
-                    MIGRATION_11_12,
-                    MIGRATION_12_13,
-                    MIGRATION_13_14,
-                    MIGRATION_14_15,
-                    MIGRATION_15_16,
-                    MIGRATION_16_17,
-                    MIGRATION_17_18,
-                    MIGRATION_18_19,
-                    MIGRATION_19_20,
-                    MIGRATION_20_21
-                )
-                .build()
-
-        private fun databaseFiles(databaseFile: File): List<File> =
-            listOf(
-                databaseFile,
-                File(databaseFile.absolutePath + "-wal"),
-                File(databaseFile.absolutePath + "-shm"),
-                File(databaseFile.absolutePath + "-journal")
-            )
 
         fun closeDatabase() {
             synchronized(this) {

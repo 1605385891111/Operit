@@ -52,13 +52,7 @@ enum class MarkdownProcessorType {
  * Markdown数据模型 
  * 
  */
-private val markdownNodeIdGenerator = java.util.concurrent.atomic.AtomicLong()
-
-class MarkdownNode(
-    val type: MarkdownProcessorType,
-    initialContent: String = "",
-    val nodeId: Long = markdownNodeIdGenerator.incrementAndGet(),
-) {
+class MarkdownNode(val type: MarkdownProcessorType, initialContent: String = "") {
     val content: SmartString = SmartString(initialContent)
     val children: SnapshotStateList<MarkdownNode> = mutableStateListOf()
 }
@@ -67,8 +61,7 @@ class MarkdownNode(
 data class MarkdownNodeStable(
     val type: MarkdownProcessorType,
     val content: String,
-    val children: List<MarkdownNodeStable>,
-    val nodeId: Long = 0L,
+    val children: List<MarkdownNodeStable>
 )
 
 /** 将字符串转换为字符流 */
@@ -89,16 +82,8 @@ fun Stream<String>.toCharStream(): Stream<Char> {
             }
         }
     }
-    var result: Stream<Char> = charStream
-    val carrier = this as? TextStreamEventCarrier
-    if (carrier != null) {
-        result = result.withTextEventChannel(carrier.eventChannel)
-    }
-    val rollbackPrefix = this as? StreamRollbackPrefix
-    if (rollbackPrefix != null) {
-        result = result.withRollbackPrefix(rollbackPrefix.rollbackPrefix)
-    }
-    return result
+    val carrier = this as? TextStreamEventCarrier ?: return charStream
+    return charStream.withTextEventChannel(carrier.eventChannel)
 }
 
 /** Markdown结果处理器 - 生成MarkdownNode模型 */

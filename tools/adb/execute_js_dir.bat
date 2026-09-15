@@ -96,42 +96,13 @@ if %DEVICE_COUNT% equ 1 (
     echo Selected device: !DEVICE_SERIAL!
 )
 
-REM Resolve the installed Debug or Release application package.
-set "APP_PACKAGE=%OPERIT_APP_PACKAGE%"
-if defined APP_PACKAGE (
-    if /I not "!APP_PACKAGE!"=="com.ai.assistance.operit.debug" if /I not "!APP_PACKAGE!"=="com.ai.assistance.operit" (
-        echo Error: Unsupported Operit application package - !APP_PACKAGE!
-        exit /b 1
-    )
-    adb -s "!DEVICE_SERIAL!" shell pm list packages "!APP_PACKAGE!" | findstr /x /c:"package:!APP_PACKAGE!" >nul
-    if errorlevel 1 (
-        echo Error: Operit application package is not installed - !APP_PACKAGE!
-        exit /b 1
-    )
-) else (
-    set "APP_PACKAGE="
-    for %%P in (com.ai.assistance.operit.debug com.ai.assistance.operit) do (
-        if not defined APP_PACKAGE (
-            adb -s "!DEVICE_SERIAL!" shell pm list packages "%%P" | findstr /x /c:"package:%%P" >nul
-            if not errorlevel 1 set "APP_PACKAGE=%%P"
-        )
-    )
-    if not defined APP_PACKAGE (
-        echo Error: Neither supported Operit application package is installed
-        exit /b 1
-    )
-)
-set "EXECUTE_JS_ACTION=com.ai.assistance.operit.EXECUTE_JS"
-set "SCRIPT_EXECUTION_RECEIVER=!APP_PACKAGE!/.core.tools.javascript.ScriptExecutionReceiver"
-echo Using Operit application package: !APP_PACKAGE!
-
-endlocal & set "DEVICE_SERIAL=%DEVICE_SERIAL%" & set "APP_PACKAGE=%APP_PACKAGE%" & set "EXECUTE_JS_ACTION=%EXECUTE_JS_ACTION%" & set "SCRIPT_EXECUTION_RECEIVER=%SCRIPT_EXECUTION_RECEIVER%" & set "SUITE_DIR=%SUITE_DIR%" & set "ENTRY_REL=%ENTRY_REL%" & set "ENTRY_REL_LOCAL=%ENTRY_REL_LOCAL%" & set "FUNCTION_NAME=%FUNCTION_NAME%" & set "PARAMS_ARG=%PARAMS_ARG%" & set "ENV_FILE_PATH=%ENV_FILE_PATH%" & set "RESULT_WAIT_SECONDS=%RESULT_WAIT_SECONDS%"
+endlocal & set "DEVICE_SERIAL=%DEVICE_SERIAL%" & set "SUITE_DIR=%SUITE_DIR%" & set "ENTRY_REL=%ENTRY_REL%" & set "ENTRY_REL_LOCAL=%ENTRY_REL_LOCAL%" & set "FUNCTION_NAME=%FUNCTION_NAME%" & set "PARAMS_ARG=%PARAMS_ARG%" & set "ENV_FILE_PATH=%ENV_FILE_PATH%" & set "RESULT_WAIT_SECONDS=%RESULT_WAIT_SECONDS%"
 setlocal EnableExtensions DisableDelayedExpansion
 
 REM Resolve suite name
 for %%D in ("%SUITE_DIR%") do set "SUITE_NAME=%%~nxD"
 
-set "TARGET_BASE=/sdcard/Android/data/%APP_PACKAGE%/js_temp"
+set "TARGET_BASE=/sdcard/Android/data/com.ai.assistance.operit/js_temp"
 set "TARGET_SUITES_DIR=%TARGET_BASE%/suites"
 set "TARGET_RESULT_FILE=%TARGET_BASE%/%SUITE_NAME%_%FUNCTION_NAME%_%RANDOM%.json"
 set "BUNDLED_FILE="
@@ -244,9 +215,9 @@ adb -s "%DEVICE_SERIAL%" shell rm -f "%TARGET_RESULT_FILE%"
 
 echo Executing [%FUNCTION_NAME%] from [%TARGET_ENTRY_FILE%] ...
 if "%HAS_ENV_FILE%"=="true" (
-    adb -s "%DEVICE_SERIAL%" shell "am broadcast -a %EXECUTE_JS_ACTION% -n %SCRIPT_EXECUTION_RECEIVER% --include-stopped-packages --es file_path '%TARGET_ENTRY_FILE%' --es function_name '%FUNCTION_NAME%' --es params_file_path '%TARGET_PARAMS_FILE%' --es env_file_path '%TARGET_ENV_FILE%' --es result_file_path '%TARGET_RESULT_FILE%' --ez temp_params_file true --ez temp_env_file true"
+    adb -s "%DEVICE_SERIAL%" shell "am broadcast -a com.ai.assistance.operit.EXECUTE_JS -n com.ai.assistance.operit/.core.tools.javascript.ScriptExecutionReceiver --include-stopped-packages --es file_path '%TARGET_ENTRY_FILE%' --es function_name '%FUNCTION_NAME%' --es params_file_path '%TARGET_PARAMS_FILE%' --es env_file_path '%TARGET_ENV_FILE%' --es result_file_path '%TARGET_RESULT_FILE%' --ez temp_params_file true --ez temp_env_file true"
 ) else (
-    adb -s "%DEVICE_SERIAL%" shell "am broadcast -a %EXECUTE_JS_ACTION% -n %SCRIPT_EXECUTION_RECEIVER% --include-stopped-packages --es file_path '%TARGET_ENTRY_FILE%' --es function_name '%FUNCTION_NAME%' --es params_file_path '%TARGET_PARAMS_FILE%' --es result_file_path '%TARGET_RESULT_FILE%' --ez temp_params_file true"
+    adb -s "%DEVICE_SERIAL%" shell "am broadcast -a com.ai.assistance.operit.EXECUTE_JS -n com.ai.assistance.operit/.core.tools.javascript.ScriptExecutionReceiver --include-stopped-packages --es file_path '%TARGET_ENTRY_FILE%' --es function_name '%FUNCTION_NAME%' --es params_file_path '%TARGET_PARAMS_FILE%' --es result_file_path '%TARGET_RESULT_FILE%' --ez temp_params_file true"
 )
 if errorlevel 1 (
     if "%PARAMS_LOCAL_TEMP%"=="true" (

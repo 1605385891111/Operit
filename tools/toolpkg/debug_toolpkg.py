@@ -15,10 +15,12 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
-DEBUG_APP_PACKAGE = "com.ai.assistance.operit.debug"
-RELEASE_APP_PACKAGE = "com.ai.assistance.operit"
-SUPPORTED_APP_PACKAGES = (DEBUG_APP_PACKAGE, RELEASE_APP_PACKAGE)
-APP_PACKAGE_ENV = "OPERIT_APP_PACKAGE"
+APP_PACKAGE = "com.ai.assistance.operit"
+ACTION_DEBUG_INSTALL_TOOLPKG = "com.ai.assistance.operit.DEBUG_INSTALL_TOOLPKG"
+RECEIVER_COMPONENT = (
+    "com.ai.assistance.operit/.core.tools.packTool.ToolPkgDebugInstallReceiver"
+)
+REMOTE_PACKAGES_DIR = f"/sdcard/Android/data/{APP_PACKAGE}/files/packages"
 MANIFEST_FILENAMES = ("manifest.json", "manifest.hjson")
 DEFAULT_LOG_WAIT_SECONDS = 6
 LOGCAT_TAGS = (
@@ -34,7 +36,7 @@ MAIN_PATTERN = re.compile(
     r'^\s*["\']?main["\']?\s*:\s*["\']([^"\']+)["\']',
     re.MULTILINE,
 )
-SKIP_DIR_NAMES = {".git", "__pycache__", ".backup", "backup", ".operit"}
+SKIP_DIR_NAMES = {".git", "__pycache__"}
 SKIP_FILE_NAMES = {".DS_Store", "Thumbs.db"}
 
 
@@ -251,74 +253,22 @@ def adb_command(device_serial: str, *args: str, capture_output: bool = False) ->
     return run_command(command, capture_output=capture_output)
 
 
-def _is_app_package_installed(device_serial: str, app_package: str) -> bool:
-    result = adb_command(
-        device_serial,
-        "shell",
-        "pm",
-        "list",
-        "packages",
-        app_package,
-        capture_output=True,
-    )
-    expected_line = f"package:{app_package}"
-    return any(line.strip() == expected_line for line in result.stdout.splitlines())
-
-
-def resolve_app_package(
-    device_serial: str,
-    requested_package: str | None,
-) -> str:
-    # Debug and Release APKs expose the same receivers under different applicationIds;
-    # resolving before pushing prevents an archive or broadcast from reaching the other APK.
-    configured_package = (requested_package or os.environ.get(APP_PACKAGE_ENV, "")).strip()
-    if configured_package:
-        if configured_package not in SUPPORTED_APP_PACKAGES:
-            supported = ", ".join(SUPPORTED_APP_PACKAGES)
-            raise ToolPkgDebugError(
-                f"Unsupported application package: {configured_package}. "
-                f"Expected one of: {supported}"
-            )
-        if not _is_app_package_installed(device_serial, configured_package):
-            raise ToolPkgDebugError(
-                f"Application package is not installed on {device_serial}: {configured_package}"
-            )
-        print(f"Using Operit application package: {configured_package}")
-        return configured_package
-
-    for app_package in SUPPORTED_APP_PACKAGES:
-        if _is_app_package_installed(device_serial, app_package):
-            print(f"Using Operit application package: {app_package}")
-            return app_package
-
-    supported = ", ".join(SUPPORTED_APP_PACKAGES)
-    raise ToolPkgDebugError(
-        f"Neither supported Operit application package is installed on {device_serial}: {supported}"
-    )
-
-
 def install_toolpkg(
     *,
     source: ToolPkgSource,
     archive_path: Path,
     device_serial: str,
-    app_package: str,
     reset_subpackage_states: bool,
     log_wait_seconds: int,
 ) -> None:
-    action_debug_install_toolpkg = f"{app_package}.DEBUG_INSTALL_TOOLPKG"
-    receiver_component = (
-        f"{app_package}/.core.tools.packTool.ToolPkgDebugInstallReceiver"
-    )
-    remote_packages_dir = f"/sdcard/Android/data/{app_package}/files/packages"
-    remote_file = f"{remote_packages_dir}/{safe_remote_file_name(source.package_id)}"
+    remote_file = f"{REMOTE_PACKAGES_DIR}/{safe_remote_file_name(source.package_id)}"
 
     print(f"Package ID: {source.package_id}")
     print(f"Main entry: {source.main_entry}")
     print(f"Device: {device_serial}")
     print(f"Remote archive: {remote_file}")
 
-    adb_command(device_serial, "shell", "mkdir", "-p", remote_packages_dir)
+    adb_command(device_serial, "shell", "mkdir", "-p", REMOTE_PACKAGES_DIR)
 
     print(f"Pushing [{archive_path}] to device...")
     adb_command(device_serial, "push", str(archive_path), remote_file)
@@ -332,9 +282,9 @@ def install_toolpkg(
         "am",
         "broadcast",
         "-a",
-        action_debug_install_toolpkg,
+        ACTION_DEBUG_INSTALL_TOOLPKG,
         "-n",
-        receiver_component,
+        RECEIVER_COMPONENT,
         "--include-stopped-packages",
         "--es",
         "package_name",
@@ -385,15 +335,6 @@ def parse_args() -> argparse.Namespace:
         help="adb device serial. If omitted, auto-selects when only one device is connected.",
     )
     parser.add_argument(
-        "--app-package",
-        dest="app_package",
-        default=None,
-        help=(
-            "Operit applicationId to debug. Supports com.ai.assistance.operit.debug and "
-            "com.ai.assistance.operit; defaults to OPERIT_APP_PACKAGE or automatic Debug-first detection."
-        ),
-    )
-    parser.add_argument(
         "--no-reset-subpackage-states",
         action="store_true",
         help="Keep saved subpackage enable states instead of resetting them from manifest defaults.",
@@ -425,7 +366,6 @@ def main() -> int:
     try:
         source = resolve_source(args.source)
         device_serial = select_device(args.device_serial)
-        app_package = resolve_app_package(device_serial, args.app_package)
 
         if source.kind == "folder":
             archive_path = build_temp_archive(source)
@@ -437,7 +377,6 @@ def main() -> int:
             source=source,
             archive_path=archive_path,
             device_serial=device_serial,
-            app_package=app_package,
             reset_subpackage_states=not args.no_reset_subpackage_states,
             log_wait_seconds=max(0, args.log_wait_seconds),
         )

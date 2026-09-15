@@ -24,20 +24,9 @@ object ApiProviderConfigs {
             defaultApiEndpoint = "https://api.openai.com/v1/chat/completions"
         ),
         ProviderApiConfig(
-            providerType = ApiProviderType.XAI,
-            defaultModelName = "grok-4.6",
-            defaultApiEndpoint = "https://api.x.ai/v1/chat/completions"
-        ),
-        ProviderApiConfig(
             providerType = ApiProviderType.OPENAI_RESPONSES,
             defaultModelName = "gpt-4o",
             defaultApiEndpoint = "https://api.openai.com/v1/responses"
-        ),
-        ProviderApiConfig(
-            providerType = ApiProviderType.OPENAI_CODEX,
-            defaultModelName = "gpt-5.6-luna",
-            defaultApiEndpoint = "https://chatgpt.com/backend-api/codex/responses",
-            requiresApiKey = false,
         ),
         ProviderApiConfig(
             providerType = ApiProviderType.OPENAI_RESPONSES_GENERIC,
@@ -72,17 +61,7 @@ object ApiProviderConfigs {
         ProviderApiConfig(
             providerType = ApiProviderType.DEEPSEEK,
             defaultModelName = "deepseek-v4-flash",
-            defaultApiEndpoint = "https://api.deepseek.com/v1/chat/completions",
-            endpointOptions = listOf(
-                ProviderEndpointOption(
-                    endpoint = "https://api.deepseek.com/v1/chat/completions",
-                    label = "Chat Completions"
-                ),
-                ProviderEndpointOption(
-                    endpoint = "https://api.deepseek.com/v1/responses",
-                    label = "Responses"
-                )
-            )
+            defaultApiEndpoint = "https://api.deepseek.com/v1/chat/completions"
         ),
         ProviderApiConfig(
             providerType = ApiProviderType.BAIDU,
@@ -172,21 +151,6 @@ object ApiProviderConfigs {
             defaultApiEndpoint = "https://openrouter.ai/api/v1/chat/completions"
         ),
         ProviderApiConfig(
-            providerType = ApiProviderType.OPENCODE,
-            defaultModelName = "",
-            defaultApiEndpoint = "https://opencode.ai/zen",
-            endpointOptions = listOf(
-                ProviderEndpointOption(
-                    endpoint = "https://opencode.ai/zen",
-                    label = "Zen"
-                ),
-                ProviderEndpointOption(
-                    endpoint = "https://opencode.ai/zen/go",
-                    label = "Go"
-                )
-            )
-        ),
-        ProviderApiConfig(
             providerType = ApiProviderType.FOUR_ROUTER,
             defaultModelName = "gpt-5.4-mini",
             defaultApiEndpoint = "https://4router.net/v1/chat/completions"
@@ -273,21 +237,6 @@ object ApiProviderConfigs {
                 ProviderEndpointOption(
                     endpoint = "https://api.novita.ai/anthropic/v1/messages",
                     label = "Anthropic-compatible"
-                )
-            )
-        ),
-        ProviderApiConfig(
-            providerType = ApiProviderType.MINIMAX,
-            defaultModelName = "MiniMax-M2.7",
-            defaultApiEndpoint = "https://api.minimaxi.com/v1/chat/completions",
-            endpointOptions = listOf(
-                ProviderEndpointOption(
-                    endpoint = "https://api.minimaxi.com/v1/chat/completions",
-                    label = "China (minimaxi.com)"
-                ),
-                ProviderEndpointOption(
-                    endpoint = "https://api.minimax.io/v1/chat/completions",
-                    label = "International (minimax.io)"
                 )
             )
         ),

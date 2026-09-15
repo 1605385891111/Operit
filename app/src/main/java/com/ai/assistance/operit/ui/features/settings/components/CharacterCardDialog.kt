@@ -111,7 +111,7 @@ fun CharacterCardDialog(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val useEnglish = remember(context) {
-        !LocaleUtils.usesChineseContent(context)
+        LocaleUtils.getCurrentLanguage(context).lowercase().startsWith("en")
     }
     val toolHandler = remember { AIToolHandler.getInstance(context) }
     val packageManager = remember { PackageManager.getInstance(context, toolHandler) }
@@ -135,6 +135,7 @@ fun CharacterCardDialog(
         .collectAsState(initial = null)
 
     LaunchedEffect(Unit) {
+        modelConfigManager.initializeIfNeeded()
         configSummaries = modelConfigManager.getAllConfigSummaries()
         val profileIds = userPreferencesManager.memorySpaceListFlow.first()
         preferenceProfiles =

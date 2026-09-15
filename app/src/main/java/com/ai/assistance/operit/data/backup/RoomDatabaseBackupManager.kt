@@ -3,7 +3,6 @@ package com.ai.assistance.operit.data.backup
 import android.content.Context
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.ai.assistance.operit.data.db.AppDatabase
-import com.ai.assistance.operit.data.stats.TokenUsageRepository
 import com.ai.assistance.operit.util.AppLogger
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
@@ -16,6 +15,7 @@ import java.time.format.DateTimeFormatter
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.withLock
 
 object RoomDatabaseBackupManager {
 
@@ -31,7 +31,7 @@ object RoomDatabaseBackupManager {
     )
 
     suspend fun pruneExcessBackups(context: Context) {
-        TokenUsageRepository.withDatabaseAccess {
+        RoomDatabaseBackupRestoreLock.mutex.withLock {
             val preferences = RoomDatabaseBackupPreferences.getInstance(context)
             val maxBackupCount = preferences.getMaxBackupCount()
             enforceMaxBackupCount(context, keepLatest = maxBackupCount)
@@ -39,24 +39,24 @@ object RoomDatabaseBackupManager {
     }
 
     suspend fun backupIfNeeded(context: Context, force: Boolean): BackupResult {
-        return TokenUsageRepository.withDatabaseAccess {
+        return RoomDatabaseBackupRestoreLock.mutex.withLock {
             val preferences = RoomDatabaseBackupPreferences.getInstance(context)
             val enabled = preferences.isDailyBackupEnabled()
             val maxBackupCount = preferences.getMaxBackupCount()
             if (!enabled && !force) {
-                return@withDatabaseAccess BackupResult(performed = false, skippedReason = "disabled")
+                return@withLock BackupResult(performed = false, skippedReason = "disabled")
             }
 
             if (force) {
                 val backupFile = createManualBackup(context)
                 enforceMaxBackupCount(context, keepLatest = maxBackupCount)
-                return@withDatabaseAccess BackupResult(performed = true, backupFile = backupFile)
+                return@withLock BackupResult(performed = true, backupFile = backupFile)
             }
 
             val today = LocalDate.now().format(DateTimeFormatter.ISO_DATE)
             val lastValue = preferences.lastBackupDayFlow.first()
             if (lastValue == today) {
-                return@withDatabaseAccess BackupResult(performed = false, skippedReason = "already_backed_up_today")
+                return@withLock BackupResult(performed = false, skippedReason = "already_backed_up_today")
             }
 
             val backupFile = createOrReplaceAutoBackup(context, today)

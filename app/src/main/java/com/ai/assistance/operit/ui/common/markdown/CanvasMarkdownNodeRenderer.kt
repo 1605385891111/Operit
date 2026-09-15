@@ -528,14 +528,17 @@ private fun renderNodeContent(
     fillMaxWidth: Boolean,
     isLastNode: Boolean = false
 ) {
-    when (node.type) {
+    // 【关键优化】只要节点内容不变，就记住原始节点实例，防止不必要的重组
+    val stableNode = remember(content) { node }
+
+    when (stableNode.type) {
         // ========== 简单文本类型：使用单个大 Canvas 绘制 ==========
         MarkdownProcessorType.HEADER,
         MarkdownProcessorType.ORDERED_LIST,
         MarkdownProcessorType.UNORDERED_LIST -> {
             UnifiedCanvasRenderer(
                 nodeKey = nodeKey,
-                node = node,
+                node = stableNode,
                 textColor = textColor,
                 bodyMediumSize = fontSizes.bodyMedium,
                 headlineLargeSize = fontSizes.headlineLarge,
@@ -555,7 +558,7 @@ private fun renderNodeContent(
         MarkdownProcessorType.PLAIN_TEXT -> {
             UnifiedCanvasRenderer(
                 nodeKey = nodeKey,
-                node = node,
+                node = stableNode,
                 textColor = textColor,
                 bodyMediumSize = fontSizes.bodyMedium,
                 headlineLargeSize = fontSizes.headlineLarge,
@@ -611,8 +614,7 @@ private fun renderNodeContent(
             EnhancedTableBlock(
                 tableContent = content,
                 textColor = textColor,
-                modifier = Modifier.fillMaxWidth(),
-                onLinkClick = onLinkClick,
+                modifier = Modifier.fillMaxWidth()
             )
         }
         
@@ -837,12 +839,7 @@ private fun UnifiedCanvasRenderer(
                         node.type == MarkdownProcessorType.ORDERED_LIST ||
                         node.type == MarkdownProcessorType.UNORDERED_LIST)
 
-        val contentKey: Any =
-            if (nodeKey.startsWith("static-node-")) {
-                node.content
-            } else {
-                node.content.length
-            }
+        val contentKey = node.content.length
 
         // 计算布局和绘制指令（用于稳定高度/宽度）
         val layoutResult = remember(
@@ -878,6 +875,7 @@ private fun UnifiedCanvasRenderer(
                 globalParagraphSpacingDp = textLayoutSettings.paragraphSpacingDp
             )
         }
+
         val textLayoutInstructions = layoutResult.instructions.filterIsInstance<DrawInstruction.TextLayout>()
         val textLayoutLengths =
             remember(layoutResult.instructions) {

@@ -19,7 +19,6 @@ object LocaleUtils {
         const val AUTO = "system"
         const val CHINESE = "zh"
         const val ENGLISH = "en"
-        const val JAPANESE = "ja"
         const val KOREAN = "ko"
         const val SPANISH = "es"
         const val MALAY = "ms"
@@ -44,7 +43,6 @@ object LocaleUtils {
                     Language(LanguageCodes.AUTO, "Follow system", "跟随系统"),
                     Language(LanguageCodes.CHINESE, "Chinese", "中文"),
                     Language(LanguageCodes.ENGLISH, "English", "English"),
-                    Language(LanguageCodes.JAPANESE, "Japanese", "日本語"),
                     Language(LanguageCodes.KOREAN, "Korean", "한국어"),
                     Language(LanguageCodes.SPANISH, "Spanish", "Español"),
                     Language(LanguageCodes.MALAY, "Malay", "Bahasa Melayu"),
@@ -79,51 +77,6 @@ object LocaleUtils {
                 ?: Locale(resolvedCode)
     }
 
-    fun createLocaleOverrideConfiguration(locale: Locale): Configuration {
-        // Keep this override sparse so window size and orientation continue to update.
-        return Configuration().apply {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                setLocales(createPlatformLocaleList(locale))
-            } else {
-                @Suppress("DEPRECATION")
-                setLocale(locale)
-            }
-        }
-    }
-
-    /**
-     * 日本語で未翻訳の項目は英語リソースを使用し、中国語の既定リソースを表示しない。
-     */
-    fun createCompatLocaleList(locale: Locale): LocaleListCompat {
-        return if (locale.language.equals(LanguageCodes.JAPANESE, ignoreCase = true)) {
-            LocaleListCompat.forLanguageTags("${locale.toLanguageTag()},${LanguageCodes.ENGLISH}")
-        } else {
-            LocaleListCompat.create(locale)
-        }
-    }
-
-    fun createPlatformLocaleList(locale: Locale): LocaleList {
-        return if (locale.language.equals(LanguageCodes.JAPANESE, ignoreCase = true)) {
-            LocaleList(locale, Locale.ENGLISH)
-        } else {
-            LocaleList(locale)
-        }
-    }
-
-    fun setDefaultLocales(locale: Locale) {
-        Locale.setDefault(locale)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            LocaleList.setDefault(createPlatformLocaleList(locale))
-        }
-    }
-
-    /** 中国語専用コンテンツを選ぶ必要がある場合だけtrueを返す。 */
-    fun usesChineseContent(context: Context): Boolean {
-        return getCurrentLanguage(context)
-                .lowercase(Locale.ROOT)
-                .startsWith(LanguageCodes.CHINESE)
-    }
-
     /**
      * 获取包含当前应用语言设置的上下文。
      * 对于使用applicationContext的单例或服务，这非常有用，
@@ -135,7 +88,19 @@ object LocaleUtils {
     fun getLocalizedContext(context: Context): Context {
         val lang = getCurrentLanguage(context)
         val locale = getLocaleForLanguageCode(lang, context)
-        return context.createConfigurationContext(createLocaleOverrideConfiguration(locale))
+
+        val configuration = Configuration(context.resources.configuration)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            configuration.setLocale(locale)
+            val localeList = LocaleList(locale)
+            configuration.setLocales(localeList)
+        } else {
+            @Suppress("DEPRECATION")
+            configuration.setLocale(locale)
+        }
+
+        return context.createConfigurationContext(configuration)
     }
 
     /**
@@ -182,12 +147,12 @@ object LocaleUtils {
         val localeToSet = getLocaleForLanguageCode(languageCode, context)
         
         // 设置默认语言
-        setDefaultLocales(localeToSet)
+        Locale.setDefault(localeToSet)
         
         // 根据Android版本应用语言设置
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             // Android 13+ 使用AppCompatDelegate API
-            val localeList = createCompatLocaleList(localeToSet)
+            val localeList = LocaleListCompat.create(localeToSet)
             AppCompatDelegate.setApplicationLocales(localeList)
         } else {
             // 较旧版本Android使用资源配置
@@ -195,7 +160,8 @@ object LocaleUtils {
                 val config = Configuration(context.resources.configuration)
                 
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                    val localeList = createPlatformLocaleList(localeToSet)
+                    val localeList = LocaleList(localeToSet)
+                    LocaleList.setDefault(localeList)
                     config.setLocales(localeList)
                 } else {
                     config.locale = localeToSet

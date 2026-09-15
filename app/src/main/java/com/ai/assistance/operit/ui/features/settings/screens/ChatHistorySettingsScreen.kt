@@ -15,8 +15,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.*
@@ -43,8 +41,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
 import coil.compose.rememberAsyncImagePainter
 import com.ai.assistance.operit.R
-import com.ai.assistance.operit.api.chat.library.ChatMemoryRebuildManager
-import com.ai.assistance.operit.api.chat.library.ChatMemoryWindowPlanner
 import com.ai.assistance.operit.data.model.ChatHistory
 import com.ai.assistance.operit.data.model.CharacterCard
 import com.ai.assistance.operit.data.model.CharacterCardChatStats
@@ -80,8 +76,6 @@ data class UnboundWorkspaceInfo(
 fun ChatHistorySettingsScreen() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val memoryRebuildManager = remember { ChatMemoryRebuildManager.getInstance(context) }
-    val memoryRebuildProgress by memoryRebuildManager.progress.collectAsState()
 
     val chatHistoryManager = remember { ChatHistoryManager.getInstance(context) }
     val characterCardManager = remember { CharacterCardManager.getInstance(context) }
@@ -308,8 +302,6 @@ fun ChatHistorySettingsScreen() {
                     chatHistories = chatHistories,
                     characterCards = availableCharacterCards,
                     characterGroups = availableCharacterGroups,
-                    memoryRebuildManager = memoryRebuildManager,
-                    memoryRebuildProgress = memoryRebuildProgress,
                     onApply = { selectedIds, targetCharacterName, targetCharacterGroupId, targetGroupName, shouldUnbindCharacterCard, shouldUnbindCharacterGroup ->
                         if (selectedIds.isEmpty()) {
                             Toast.makeText(context, context.getString(R.string.please_select_chats_first), Toast.LENGTH_SHORT).show()
@@ -1187,8 +1179,6 @@ private fun ChatHistoryBatchSelectorCard(
     chatHistories: List<ChatHistory>,
     characterCards: List<CharacterCard>,
     characterGroups: List<CharacterGroupCard>,
-    memoryRebuildManager: ChatMemoryRebuildManager,
-    memoryRebuildProgress: ChatMemoryRebuildManager.Progress,
     onApply: suspend (
         selectedChatIds: List<String>,
         targetCharacterCardName: String?,
@@ -1212,13 +1202,6 @@ private fun ChatHistoryBatchSelectorCard(
     var submitting by remember { mutableStateOf(false) }
     var deleteInProgress by remember { mutableStateOf(false) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
-    var showSelectedChatActionsDialog by remember { mutableStateOf(false) }
-    var showBatchManagementSheet by remember { mutableStateOf(false) }
-    var memoryWindowSizeMenuExpanded by remember { mutableStateOf(false) }
-    var selectedMemoryWindowSize by remember {
-        mutableIntStateOf(ChatMemoryWindowPlanner.DEFAULT_WINDOW_MESSAGE_COUNT)
-    }
-    var showMemoryRebuildConfirmDialog by remember { mutableStateOf(false) }
 
     val normalizedQuery = searchQuery.trim()
     val characterGroupNameById = remember(characterGroups) {
@@ -1278,9 +1261,6 @@ private fun ChatHistoryBatchSelectorCard(
     }
 
     val hasSelection = selectedChatIds.isNotEmpty()
-    val isMemoryRebuildRunning =
-        memoryRebuildProgress.status == ChatMemoryRebuildManager.Status.PREPARING ||
-            memoryRebuildProgress.status == ChatMemoryRebuildManager.Status.RUNNING
     val hasTargetSelection = targetIsUnbind || !selectedTargetName.isNullOrBlank()
     val hasTargetGroupSelection = targetGroupIsUnbind || !selectedTargetGroupId.isNullOrBlank()
     val hasTargetGroup = targetGroupName.isNotBlank()
@@ -1288,8 +1268,7 @@ private fun ChatHistoryBatchSelectorCard(
         hasSelection &&
             (hasTargetSelection || hasTargetGroupSelection || hasTargetGroup) &&
             !submitting &&
-            !deleteInProgress &&
-            !isMemoryRebuildRunning
+            !deleteInProgress
 
     ElevatedCard(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -1297,8 +1276,8 @@ private fun ChatHistoryBatchSelectorCard(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             SectionHeader(
-                title = stringResource(R.string.chat_history_batch_operations_title),
-                subtitle = stringResource(R.string.chat_history_batch_operations_subtitle),
+                title = stringResource(R.string.batch_assign_title),
+                subtitle = stringResource(R.string.batch_assign_subtitle),
                 icon = Icons.AutoMirrored.Filled.PlaylistAddCheck
             )
 
@@ -1318,7 +1297,10 @@ private fun ChatHistoryBatchSelectorCard(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-            } else if (filteredHistories.isEmpty()) {
+                return@ElevatedCard
+            }
+
+            if (filteredHistories.isEmpty()) {
                 Text(
                     text = context.getString(R.string.no_matching_chats_adjust_filter),
                     style = MaterialTheme.typography.bodyMedium,
@@ -1348,21 +1330,13 @@ private fun ChatHistoryBatchSelectorCard(
                                 val ids = filteredHistories.map { it.id }
                                 selectedChatIds = selectedChatIds.toMutableSet().apply { addAll(ids) }
                             },
-                            enabled =
-                                filteredHistories.isNotEmpty() &&
-                                    !submitting &&
-                                    !deleteInProgress &&
-                                    !isMemoryRebuildRunning
+                            enabled = filteredHistories.isNotEmpty() && !submitting && !deleteInProgress
                         ) {
                             Text(context.getString(R.string.select_all_current_list))
                         }
                         TextButton(
                             onClick = { selectedChatIds = emptySet() },
-                            enabled =
-                                selectedChatIds.isNotEmpty() &&
-                                    !submitting &&
-                                    !deleteInProgress &&
-                                    !isMemoryRebuildRunning
+                            enabled = selectedChatIds.isNotEmpty() && !submitting && !deleteInProgress
                         ) {
                             Text(context.getString(R.string.clear_selection))
                         }
@@ -1382,9 +1356,8 @@ private fun ChatHistoryBatchSelectorCard(
                             history = history,
                             characterGroupName = groupName,
                             selected = selectedChatIds.contains(history.id),
-                            enabled = !submitting && !deleteInProgress && !isMemoryRebuildRunning,
                             onSelectionChange = { selected ->
-                                if (submitting || deleteInProgress || isMemoryRebuildRunning) {
+                                if (submitting || deleteInProgress) {
                                     return@ChatHistorySelectableRow
                                 }
                                 selectedChatIds = if (selected) {
@@ -1401,156 +1374,29 @@ private fun ChatHistoryBatchSelectorCard(
                 }
             }
 
-            if (memoryRebuildProgress.status != ChatMemoryRebuildManager.Status.IDLE) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    when (memoryRebuildProgress.status) {
-                        ChatMemoryRebuildManager.Status.PREPARING -> {
-                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                            Text(
-                                text = stringResource(R.string.chat_memory_rebuild_preparing),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-
-                        ChatMemoryRebuildManager.Status.RUNNING -> {
-                            LinearProgressIndicator(
-                                progress = { memoryRebuildProgress.fraction.coerceIn(0f, 1f) },
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            Text(
-                                text = context.getString(
-                                    R.string.chat_memory_rebuild_progress,
-                                    memoryRebuildProgress.currentChatTitle,
-                                    memoryRebuildProgress.completedWindows + 1,
-                                    memoryRebuildProgress.totalWindows,
-                                    memoryRebuildProgress.processedSourceMessages,
-                                    memoryRebuildProgress.totalSourceMessages,
-                                    memoryRebuildProgress.failedWindows
-                                ),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-
-                        ChatMemoryRebuildManager.Status.COMPLETED -> {
-                            Text(
-                                text = context.getString(
-                                    R.string.chat_memory_rebuild_completed,
-                                    memoryRebuildProgress.completedChats,
-                                    memoryRebuildProgress.completedWindows,
-                                    memoryRebuildProgress.failedWindows
-                                ),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-
-                        ChatMemoryRebuildManager.Status.CANCELLED -> {
-                            Text(
-                                text = context.getString(
-                                    R.string.chat_memory_rebuild_cancelled,
-                                    memoryRebuildProgress.completedWindows,
-                                    memoryRebuildProgress.totalWindows
-                                ),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-
-                        ChatMemoryRebuildManager.Status.FAILED -> {
-                            Text(
-                                text = context.getString(
-                                    R.string.chat_memory_rebuild_failed,
-                                    memoryRebuildProgress.errorMessage
-                                ),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.error
-                            )
-                        }
-
-                        ChatMemoryRebuildManager.Status.IDLE -> Unit
-                    }
-                    if (isMemoryRebuildRunning) {
-                        OutlinedButton(
-                            onClick = memoryRebuildManager::cancel,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(Icons.Default.Stop, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(stringResource(R.string.chat_memory_rebuild_cancel))
-                        }
-                    }
-                }
-            }
-
-            if (!isMemoryRebuildRunning && hasSelection) {
-                Button(
-                    onClick = { showSelectedChatActionsDialog = true },
-                    enabled = !submitting && !deleteInProgress,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.PlaylistAddCheck, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(stringResource(R.string.chat_history_selected_actions, selectedChatIds.size))
-                }
-            }
-        }
-    }
-
-    if (showBatchManagementSheet) {
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(
-            onDismissRequest = {
-                if (!submitting) {
-                    showBatchManagementSheet = false
-                }
-            },
-            sheetState = sheetState
-        ) {
-            Column(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .widthIn(max = 720.dp)
-                        .heightIn(max = 640.dp)
-                        .verticalScroll(rememberScrollState())
-                        .padding(start = 20.dp, end = 20.dp, bottom = 28.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.PlaylistAddCheck,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        text = stringResource(R.string.chat_history_batch_management),
-                        style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.padding(start = 10.dp).weight(1f)
-                    )
-                    IconButton(
-                        onClick = { showBatchManagementSheet = false },
-                        enabled = !submitting
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = stringResource(R.string.cancel)
-                        )
-                    }
-                }
-                Text(
-                    text = context.getString(
-                        R.string.selected_chats_count,
-                        selectedChatIds.size,
-                        filteredHistories.size
-                    ),
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold
+            Button(
+                onClick = { showDeleteConfirmDialog = true },
+                enabled = hasSelection && !submitting && !deleteInProgress,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError
                 )
+            ) {
+                if (deleteInProgress) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onError
+                    )
+                } else {
+                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(context.getString(R.string.delete_selected_chats, selectedChatIds.size))
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 ExposedDropdownMenuBox(
                     expanded = dropdownExpanded,
                     onExpandedChange = { dropdownExpanded = it }
@@ -1706,7 +1552,6 @@ private fun ChatHistoryBatchSelectorCard(
                                     targetIsUnbind = false
                                     selectedTargetGroupId = null
                                     targetGroupIsUnbind = false
-                                    showBatchManagementSheet = false
                                 }
                                 submitting = false
                             }
@@ -1733,83 +1578,16 @@ private fun ChatHistoryBatchSelectorCard(
                         }
                         Text(buttonText)
                     }
+                    TextButton(
+                        onClick = {
+                            selectedChatIds = emptySet()
+                        },
+                        enabled = selectedChatIds.isNotEmpty() && !deleteInProgress,
+                        modifier = Modifier.align(Alignment.CenterVertically)
+                    ) {
+                        Text(context.getString(R.string.cancel_selection))
+                    }
                 }
-                HorizontalDivider()
-                TextButton(
-                    onClick = {
-                        showBatchManagementSheet = false
-                        showDeleteConfirmDialog = true
-                    },
-                    enabled = selectedChatIds.isNotEmpty() && !submitting && !deleteInProgress,
-                    colors = ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    ),
-                    modifier = Modifier.align(Alignment.End)
-                ) {
-                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(context.getString(R.string.delete_selected_chats, selectedChatIds.size))
-                }
-            }
-        }
-    }
-
-    if (showSelectedChatActionsDialog) {
-        ModalBottomSheet(onDismissRequest = { showSelectedChatActionsDialog = false }) {
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 28.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text(
-                    text = stringResource(R.string.chat_history_selected_actions_title),
-                    style = MaterialTheme.typography.titleLarge
-                )
-                Text(
-                    text = context.getString(
-                        R.string.selected_chats_count,
-                        selectedChatIds.size,
-                        filteredHistories.size
-                    ),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                ListItem(
-                    headlineContent = { Text(stringResource(R.string.chat_history_batch_management)) },
-                    supportingContent = { Text(stringResource(R.string.batch_assign_subtitle)) },
-                    leadingContent = {
-                        Icon(Icons.AutoMirrored.Filled.PlaylistAddCheck, contentDescription = null)
-                    },
-                    trailingContent = {
-                        Icon(Icons.Default.ChevronRight, contentDescription = null)
-                    },
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                selectedTargetName = null
-                                targetIsUnbind = false
-                                selectedTargetGroupId = null
-                                targetGroupIsUnbind = false
-                                targetGroupName = ""
-                                showSelectedChatActionsDialog = false
-                                showBatchManagementSheet = true
-                            }
-                )
-                ListItem(
-                    headlineContent = { Text(stringResource(R.string.chat_memory_rebuild_title)) },
-                    supportingContent = { Text(stringResource(R.string.chat_memory_rebuild_subtitle)) },
-                    leadingContent = { Icon(Icons.Default.Memory, contentDescription = null) },
-                    trailingContent = {
-                        Icon(Icons.Default.ChevronRight, contentDescription = null)
-                    },
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                showSelectedChatActionsDialog = false
-                                showMemoryRebuildConfirmDialog = true
-                            }
-                )
             }
         }
     }
@@ -1894,108 +1672,26 @@ private fun ChatHistoryBatchSelectorCard(
             }
         )
     }
-
-    if (showMemoryRebuildConfirmDialog) {
-        AlertDialog(
-            onDismissRequest = { showMemoryRebuildConfirmDialog = false },
-            title = { Text(stringResource(R.string.chat_memory_rebuild_confirm_title)) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    ExposedDropdownMenuBox(
-                        expanded = memoryWindowSizeMenuExpanded,
-                        onExpandedChange = { memoryWindowSizeMenuExpanded = it }
-                    ) {
-                        OutlinedTextField(
-                            value = context.getString(
-                                R.string.chat_memory_rebuild_window_size_value,
-                                selectedMemoryWindowSize
-                            ),
-                            onValueChange = {},
-                            readOnly = true,
-                            label = { Text(stringResource(R.string.chat_memory_rebuild_window_size)) },
-                            trailingIcon = {
-                                ExposedDropdownMenuDefaults.TrailingIcon(
-                                    expanded = memoryWindowSizeMenuExpanded
-                                )
-                            },
-                            modifier = Modifier.menuAnchor().fillMaxWidth(),
-                            colors = ExposedDropdownMenuDefaults.textFieldColors()
-                        )
-                        ExposedDropdownMenu(
-                            expanded = memoryWindowSizeMenuExpanded,
-                            onDismissRequest = { memoryWindowSizeMenuExpanded = false }
-                        ) {
-                            memoryWindowMessageCounts.forEach { size ->
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            context.getString(
-                                                R.string.chat_memory_rebuild_window_size_value,
-                                                size
-                                            )
-                                        )
-                                    },
-                                    onClick = {
-                                        selectedMemoryWindowSize = size
-                                        memoryWindowSizeMenuExpanded = false
-                                    }
-                                )
-                            }
-                        }
-                    }
-                    Text(
-                        context.getString(
-                            R.string.chat_memory_rebuild_confirm_message,
-                            selectedChatIds.size,
-                            selectedMemoryWindowSize
-                        )
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        memoryRebuildManager.start(
-                            chatIds = selectedChatIds.toList(),
-                            windowMessageCount = selectedMemoryWindowSize
-                        )
-                        showMemoryRebuildConfirmDialog = false
-                    }
-                ) {
-                    Text(stringResource(R.string.chat_memory_rebuild_confirm_action))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showMemoryRebuildConfirmDialog = false }) {
-                    Text(stringResource(R.string.cancel))
-                }
-            }
-        )
-    }
 }
-
-private val memoryWindowMessageCounts = listOf(16, 24, 32, 48)
 
 @Composable
 private fun ChatHistorySelectableRow(
     history: ChatHistory,
     characterGroupName: String?,
     selected: Boolean,
-    enabled: Boolean,
     onSelectionChange: (Boolean) -> Unit
 ) {
     val context = LocalContext.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(enabled = enabled) { onSelectionChange(!selected) }
+            .clickable { onSelectionChange(!selected) }
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Checkbox(
             checked = selected,
-            onCheckedChange = { onSelectionChange(it) },
-            enabled = enabled
+            onCheckedChange = { onSelectionChange(it) }
         )
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {

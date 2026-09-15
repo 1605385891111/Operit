@@ -5,8 +5,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,7 +20,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -39,12 +36,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.ai.assistance.operit.R
 import com.ai.assistance.operit.data.converter.ChatFormat
 import com.ai.assistance.operit.data.converter.ExportFormat
-import com.ai.assistance.operit.data.model.ChatHistory
 import com.ai.assistance.operit.data.model.ImportStrategy
 import com.ai.assistance.operit.data.model.MemorySpace
 
@@ -245,143 +240,6 @@ fun ProfileSelectionDialog(
 }
 
 @Composable
-@OptIn(ExperimentalLayoutApi::class)
-fun ChatHistoryExportSelectionDialog(
-    chatHistories: List<ChatHistory>,
-    selectedChatIds: Set<String>,
-    onSelectionChanged: (Set<String>) -> Unit,
-    onDismiss: () -> Unit,
-    onConfirm: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.backup_select_chat_records)) },
-        text = {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(
-                    text = stringResource(R.string.backup_select_chat_records_hint),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Text(
-                    text = stringResource(
-                        R.string.selected_chats_count,
-                        selectedChatIds.size,
-                        chatHistories.size,
-                    ),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    TextButton(
-                        onClick = { onSelectionChanged(chatHistories.map { it.id }.toSet()) },
-                        enabled = chatHistories.isNotEmpty(),
-                    ) {
-                        Text(stringResource(R.string.select_all_current_list))
-                    }
-                    TextButton(
-                        onClick = { onSelectionChanged(emptySet()) },
-                        enabled = selectedChatIds.isNotEmpty(),
-                    ) {
-                        Text(stringResource(R.string.backup_clear_selection))
-                    }
-                }
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 360.dp),
-                ) {
-                    items(chatHistories, key = { it.id }) { history ->
-                        ChatHistoryExportOption(
-                            history = history,
-                            selected = history.id in selectedChatIds,
-                            onSelectionChange = { selected ->
-                                onSelectionChanged(
-                                    if (selected) {
-                                        selectedChatIds + history.id
-                                    } else {
-                                        selectedChatIds - history.id
-                                    },
-                                )
-                            },
-                        )
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = onConfirm,
-                enabled = selectedChatIds.isNotEmpty(),
-            ) {
-                Text(stringResource(R.string.backup_confirm))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.backup_cancel))
-            }
-        },
-    )
-}
-
-@Composable
-private fun ChatHistoryExportOption(
-    history: ChatHistory,
-    selected: Boolean,
-    onSelectionChange: (Boolean) -> Unit,
-) {
-    val title = if (history.title.isBlank()) {
-        stringResource(R.string.unnamed_conversation)
-    } else {
-        history.title
-    }
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        onClick = { onSelectionChange(!selected) },
-        colors = CardDefaults.cardColors(
-            containerColor = if (selected) {
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-            } else {
-                MaterialTheme.colorScheme.surface
-            },
-        ),
-        border = if (selected) {
-            BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
-        } else {
-            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-        },
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Checkbox(
-                checked = selected,
-                onCheckedChange = onSelectionChange,
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-    }
-}
-
-@Composable
 fun ExportFormatDialog(
     selectedFormat: ExportFormat,
     onFormatSelected: (ExportFormat) -> Unit,
@@ -442,16 +300,6 @@ fun ExportFormatDialog(
                         description = stringResource(R.string.backup_format_txt_desc),
                         selected = selectedFormat == ExportFormat.TXT,
                         onClick = { onFormatSelected(ExportFormat.TXT) }
-                    )
-                }
-
-                item {
-                    FormatOption(
-                        format = ExportFormat.CSV,
-                        title = stringResource(R.string.backup_format_csv),
-                        description = stringResource(R.string.backup_format_csv_desc),
-                        selected = selectedFormat == ExportFormat.CSV,
-                        onClick = { onFormatSelected(ExportFormat.CSV) }
                     )
                 }
             }

@@ -2021,9 +2021,7 @@ data class ChatListResultData(
         val isCurrent: Boolean,
         val inputTokens: Long,
         val outputTokens: Long,
-        val characterCardName: String? = null,
-        val characterCardId: String? = null,
-        val characterGroupId: String? = null
+        val characterCardName: String? = null
     )
     
     override fun toString(): String {
@@ -2044,12 +2042,6 @@ data class ChatListResultData(
                 sb.appendLine("Message Count: ${chat.messageCount}")
                 if (!chat.characterCardName.isNullOrBlank()) {
                     sb.appendLine("Character Card: ${chat.characterCardName}")
-                }
-                if (!chat.characterCardId.isNullOrBlank()) {
-                    sb.appendLine("Character Card ID: ${chat.characterCardId}")
-                }
-                if (!chat.characterGroupId.isNullOrBlank()) {
-                    sb.appendLine("Character Group ID: ${chat.characterGroupId}")
                 }
                 sb.appendLine("Token Statistics: Input ${chat.inputTokens} / Output ${chat.outputTokens}")
                 sb.appendLine("Created: ${chat.createdAt}")
@@ -2154,32 +2146,6 @@ data class ChatMessagesResultData(
     override fun toString(): String {
         val rangeInfo = if (start != null && end != null) ", range=$start-$end" else ""
         return "Chat messages: $chatId (order=$order, limit=$limit$rangeInfo)\nTotal: ${messages.size}"
-    }
-}
-
-@Serializable
-data class ChatCallTurnInfo(
-    val kind: String,
-    val content: String,
-    val toolName: String? = null,
-    val metadata: Map<String, JsonElement> = emptyMap()
-)
-
-/** 功能模型调用结果数据 */
-@Serializable
-data class ChatCallResultData(
-    val text: String,
-    val turns: List<ChatCallTurnInfo>,
-    val finishReason: String,
-    val metadata: Map<String, JsonElement> = emptyMap(),
-    val receivedAt: Long = System.currentTimeMillis()
-) : ToolResultData() {
-    override fun toString(): String {
-        return if (text.isNotBlank()) {
-            text
-        } else {
-            "Chat model call finished: $finishReason"
-        }
     }
 }
 
@@ -2702,7 +2668,6 @@ data class FunctionModelBindingResultData(
 data class ModelConfigConnectionTestItemResultData(
     val type: String,
     val success: Boolean,
-    val outcome: String,
     val error: String? = null
 )
 
@@ -2716,14 +2681,12 @@ data class ModelConfigConnectionTestResultData(
     val actualModelIndex: Int,
     val testedModelName: String,
     val success: Boolean,
-    val verified: Boolean,
     val totalTests: Int,
     val passedTests: Int,
-    val unverifiedTests: Int,
     val failedTests: Int,
     val tests: List<ModelConfigConnectionTestItemResultData>
 ) : ToolResultData() {
     override fun toString(): String {
-        return "Model config connection test: $configId, success=$success, verified=$verified, passed=$passedTests/$totalTests"
+        return "Model config connection test: $configId, success=$success, passed=$passedTests/$totalTests"
     }
 }

@@ -41,7 +41,6 @@ import com.ai.assistance.operit.ui.main.screens.Screen
 import com.ai.assistance.operit.ui.main.navigation.AppRouterGateway
 import com.ai.assistance.operit.ui.main.navigation.AppRouterState
 import com.ai.assistance.operit.ui.main.navigation.AppRouteDiscoveryGateway
-import com.ai.assistance.operit.ui.main.navigation.screenKeysAliveOnStack
 import com.ai.assistance.operit.ui.main.navigation.NavigationEntrySpec
 import com.ai.assistance.operit.ui.main.navigation.NavigationSurface
 import com.ai.assistance.operit.ui.main.navigation.RouteEntrySource
@@ -117,12 +116,6 @@ fun OperitApp(
     val currentRouteEntry = routerState.currentEntry
     val currentScreen = AppRouteCatalog.resolveScreen(navigationModel, currentRouteEntry) ?: Screen.AiChat
     val selectedItem = currentScreen.navItem
-    // 当前导航栈中仍存活的路由 screenKey（路由级 ViewModelStore 清理依据：
-    // AppContent 在转场完成时只保留这些键的 owner）
-    val aliveScreenKeys: Set<String> =
-        screenKeysAliveOnStack(routerState.backStack) { entry ->
-            AppRouteCatalog.resolveScreen(navigationModel, entry)
-        }
     val pluginSidebarEntries =
         remember(navigationModel) {
             navigationModel.navigationEntries.filter {
@@ -539,8 +532,7 @@ fun OperitApp(
                     onGoBack = ::requestGoBack,
                     isNavigatingBack = isNavigatingBack,
                     topBarActions = { topBarActions() },
-                    topBarTitleContent = topBarTitleContent,
-                    aliveScreenKeys = aliveScreenKeys
+                    topBarTitleContent = topBarTitleContent
                 )
             } else {
                 // Phone layout
@@ -571,8 +563,7 @@ fun OperitApp(
                     onGoBack = ::requestGoBack,
                     isNavigatingBack = isNavigatingBack,
                     topBarActions = { topBarActions() },
-                    topBarTitleContent = topBarTitleContent,
-                    aliveScreenKeys = aliveScreenKeys
+                    topBarTitleContent = topBarTitleContent
                 )
             }
         }

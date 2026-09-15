@@ -163,30 +163,6 @@ set OPERIT_RESULT_WAIT_SECONDS=30
 tools\adb\execute_js.bat examples\my_script.js main @params.json
 ```
 
-### Debug / Release 双包选择
-
-这四个 ADB 执行脚本会同时支持以下两个 Operit applicationId：
-
-- `com.ai.assistance.operit.debug`
-- `com.ai.assistance.operit`
-
-未设置配置时，脚本会查询设备上的已安装包并优先选择 Debug 包；只安装 Release 包时会使用 Release 包。每次执行都会打印最终选择的 applicationId，文件目录和 receiver 都会跟随该值变化。JS 执行 action 固定为 `com.ai.assistance.operit.EXECUTE_JS`，因为它是 Receiver 的跨构建协议，不随 applicationId 追加 `.debug`。
-
-如果两种 APK 同时安装，可以显式指定：
-
-```cmd
-set OPERIT_APP_PACKAGE=com.ai.assistance.operit.debug
-tools\adb\execute_js.bat examples\my_script.js main @params.json
-```
-
-Linux/macOS：
-
-```bash
-OPERIT_APP_PACKAGE=com.ai.assistance.operit.debug ./tools/adb/execute_js.sh examples/my_script.js main '{}'
-```
-
-ToolPkg 调试安装器支持同样的环境变量，也支持 `--app-package <applicationId>`；示例包热更新脚本支持同名参数。指定的包必须已经安装在所选设备上。
-
 ## 作用和调用方法
 
 ### 1. `execute_js.*` 是干什么的

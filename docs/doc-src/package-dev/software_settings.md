@@ -52,11 +52,11 @@ writeEnvironmentVariable(key: string, value?: string): Promise<StringResultData>
 
 ### `getSpeechServicesConfig()`
 
-读取当前 TTS / STT 档案的配置，返回 `SpeechServicesConfigResultData`。语音配置现在由独立的 TTS/STT 档案管理；该 API 为保持兼容，仍然读写当前档案，不改变原有字段。
+读取当前 TTS / STT 配置，返回 `SpeechServicesConfigResultData`。
 
 ### `setSpeechServicesConfig(updates?)`
 
-更新当前 TTS / STT 档案，返回 `SpeechServicesUpdateResultData`。创建、切换和删除档案需要在语音服务设置页完成。
+更新 TTS / STT 配置，返回 `SpeechServicesUpdateResultData`。
 
 可更新字段包括：
 
@@ -98,12 +98,6 @@ writeEnvironmentVariable(key: string, value?: string): Promise<StringResultData>
 ### `testModelConfigConnection(configId, modelIndex?)`
 
 对某个模型配置执行连接测试，返回 `ModelConfigConnectionTestResultData`。
-
-返回值区分连通与能力验证：
-
-- `success`：本次测试没有硬失败。多模态请求返回了内容但没有命中探针时，仍可能为 `true`
-- `verified`：所有请求的测试项都已验证通过
-- `tests[].outcome`：单项结果，取值为 `passed`、`unverified` 或 `failed`
 
 ## 模型配置可更新字段
 

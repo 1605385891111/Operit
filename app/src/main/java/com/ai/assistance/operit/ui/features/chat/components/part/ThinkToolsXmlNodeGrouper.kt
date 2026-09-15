@@ -55,7 +55,6 @@ class ThinkToolsXmlNodeGrouper(
             if (showThinkingProcess && (tag == "think" || tag == "thinking")) {
                 var j = i + 1
                 var toolCount = 0
-                var searchCount = 0
                 var xmlToolRelatedCount = 0
                 while (j < nodes.size) {
                     val next = nodes[j]
@@ -73,8 +72,7 @@ class ThinkToolsXmlNodeGrouper(
                     }
                     val isThinkAgain = nextTag == "think" || nextTag == "thinking"
                     val isToolRelated = nextTag == "tool" || nextTag == "tool_result"
-                    val isSearchRelated = nextTag == "search"
-                    if (!isThinkAgain && !isToolRelated && !isSearchRelated) break
+                    if (!isThinkAgain && !isToolRelated) break
 
                     if (isToolRelated) {
                         val toolName = extractToolNameFromToolOrResult(next.content)
@@ -82,15 +80,11 @@ class ThinkToolsXmlNodeGrouper(
                         if (nextTag == "tool") toolCount++
                         xmlToolRelatedCount++
                     }
-                    if (isSearchRelated) {
-                        searchCount++
-                        xmlToolRelatedCount++
-                    }
 
                     j++
                 }
 
-                if (shouldCollapseThinkSequence(toolCollapseMode, toolCount, searchCount, xmlToolRelatedCount)) {
+                if (shouldCollapseToolSequence(toolCollapseMode, toolCount, xmlToolRelatedCount)) {
                     out.add(
                         MarkdownGroupedItem.Group(
                             startIndex = i,
@@ -159,38 +153,6 @@ class ThinkToolsXmlNodeGrouper(
                 continue
             }
 
-            if (tag == "search") {
-                var j = i + 1
-
-                while (j < nodes.size) {
-                    val next = nodes[j]
-                    if (next.type == MarkdownProcessorType.PLAIN_TEXT && next.content.isBlank()) {
-                        j++
-                        continue
-                    }
-                    if (next.type != MarkdownProcessorType.XML_BLOCK) break
-
-                    val nextTag = extractXmlTagName(next.content)
-                    if (isIgnorableXmlTagForToolGrouping(nextTag)) {
-                        j++
-                        continue
-                    }
-                    if (nextTag != "search") break
-
-                    j++
-                }
-
-                out.add(
-                    MarkdownGroupedItem.Group(
-                        startIndex = i,
-                        endIndexInclusive = j - 1,
-                        stableKey = "search-only-$i"
-                    )
-                )
-                i = j
-                continue
-            }
-
             out.add(MarkdownGroupedItem.Single(i))
             i++
         }
@@ -232,22 +194,15 @@ class ThinkToolsXmlNodeGrouper(
         val toolCount = slice.count {
             it.type == MarkdownProcessorType.XML_BLOCK && extractXmlTagName(it.content) == "tool"
         }
-        val searchCount = slice.count {
-            it.type == MarkdownProcessorType.XML_BLOCK && extractXmlTagName(it.content) == "search"
-        }
         val titleText =
-            when {
-                group.stableKey.startsWith("tools-only-") ->
-                    stringResource(R.string.tools_group_title_with_count, toolCount)
-                group.stableKey.startsWith("search-only-") ->
-                    stringResource(R.string.search_group_title)
-                searchCount > 0 && toolCount > 0 ->
-                    stringResource(R.string.thinking_search_tools_group_title_with_count, toolCount)
-                searchCount > 0 ->
-                    stringResource(R.string.thinking_search_group_title)
-                else ->
-                    stringResource(R.string.thinking_tools_group_title_with_count, toolCount)
-            }
+            stringResource(
+                id = if (group.stableKey.startsWith("tools-only-")) {
+                    R.string.tools_group_title_with_count
+                } else {
+                    R.string.thinking_tools_group_title_with_count
+                },
+                toolCount
+            )
 
         val hasLiveXmlStream = slice.indices.any { idx ->
             val absoluteIndex = group.startIndex + idx
@@ -261,7 +216,6 @@ class ThinkToolsXmlNodeGrouper(
                     val tag = extractXmlTagName(node.content)
                     when (tag) {
                         "think", "thinking" -> true
-                        "search" -> true
                         "meta" -> true
                         "tool", "tool_result" -> {
                             val toolName = extractToolNameFromToolOrResult(node.content)
@@ -343,7 +297,7 @@ class ThinkToolsXmlNodeGrouper(
                 Box(
                     modifier =
                         Modifier.fillMaxWidth()
-                            .padding(top = 2.dp, bottom = 4.dp, start = 24.dp)
+                            .padding(top = 4.dp, bottom = 8.dp, start = 24.dp)
                 ) {
                     Column(modifier = Modifier.fillMaxWidth()) {
                         slice.forEachIndexed { idx, node ->
@@ -463,19 +417,5 @@ private fun shouldCollapseToolSequence(
     return when (toolCollapseMode) {
         ToolCollapseMode.FULL -> true
         ToolCollapseMode.READ_ONLY, ToolCollapseMode.ALL -> toolCount >= 2 && xmlToolRelatedCount >= 2
-    }
-}
-
-private fun shouldCollapseThinkSequence(
-    toolCollapseMode: ToolCollapseMode,
-    toolCount: Int,
-    searchCount: Int,
-    xmlToolRelatedCount: Int
-): Boolean {
-    if (xmlToolRelatedCount <= 0) return false
-    return when (toolCollapseMode) {
-        ToolCollapseMode.FULL -> true
-        ToolCollapseMode.READ_ONLY, ToolCollapseMode.ALL ->
-            searchCount > 0 || (toolCount >= 2 && xmlToolRelatedCount >= 2)
     }
 }

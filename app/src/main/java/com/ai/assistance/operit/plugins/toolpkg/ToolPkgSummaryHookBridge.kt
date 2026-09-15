@@ -140,10 +140,11 @@ internal object ToolPkgSummaryHookBridge {
                         functionSource = hook.functionSource
                     )
                 }
-            }.sortedByToolPkgLoadOrder(
-                activeContainers = activeContainers,
-                containerPackageName = ToolPkgPromptHookRegistration::containerPackageName,
-                registrationId = ToolPkgPromptHookRegistration::hookId
+            }.sortedWith(
+                compareBy(
+                    ToolPkgPromptHookRegistration::containerPackageName,
+                    ToolPkgPromptHookRegistration::hookId
+                )
             )
     }
 

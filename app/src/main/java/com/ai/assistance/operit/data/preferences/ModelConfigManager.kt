@@ -1,16 +1,15 @@
 package com.ai.assistance.operit.data.preferences
 
 import android.content.Context
-import com.ai.assistance.operit.api.chat.llmprovider.ThinkingQualityMappingRegistry
 import com.ai.assistance.operit.util.AppLogger
 import com.ai.assistance.operit.R
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
-import com.ai.assistance.operit.data.collects.ModelThinkingConfigDefaults
+import androidx.datastore.preferences.preferencesDataStore
 import com.ai.assistance.operit.data.model.CustomParameterData
-import com.ai.assistance.operit.data.model.FunctionType
 import com.ai.assistance.operit.data.model.ModelConfigData
 import com.ai.assistance.operit.data.model.ModelConfigDefaults
 import com.ai.assistance.operit.data.model.ModelConfigSummary
@@ -18,10 +17,8 @@ import com.ai.assistance.operit.data.model.ModelParameter
 import com.ai.assistance.operit.data.model.ParameterCategory
 import com.ai.assistance.operit.data.model.ParameterValueType
 import com.ai.assistance.operit.data.model.StandardModelParameters
-import com.ai.assistance.operit.data.model.SummarySectionOverride
 import com.ai.assistance.operit.data.model.ApiProviderType
 import com.ai.assistance.operit.data.model.ApiKeyInfo
-import java.util.Locale
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -29,32 +26,16 @@ import kotlinx.coroutines.flow.map
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import org.json.JSONArray
-import org.json.JSONObject
 
 // 为ModelConfig创建专用的DataStore
 private val Context.modelConfigDataStore: DataStore<Preferences> by
-        versionedPreferencesDataStore(
-                name = "model_configs",
-                currentVersion = 4,
-        ) { appContext ->
-            preferenceSchemaMigration { version, preferences ->
-                when (version) {
-                    0 -> ModelConfigManager.migratePreferencesFromVersionZero(appContext, preferences)
-                    1 -> ModelConfigManager.migratePreferencesFromVersionOne(preferences)
-                    2 -> ModelConfigManager.migratePreferencesFromVersionTwo(preferences)
-                    3 -> ModelConfigManager.migratePreferencesFromVersionThree(preferences)
-                    else -> missingPreferencesSchemaMigration(version)
-                }
-            }
-        }
+        preferencesDataStore(name = "model_configs")
 
-class ModelConfigManager(
-        private val context: Context,
-        configDataStore: DataStore<Preferences> = context.modelConfigDataStore
-) {
+// 获取ApiPreferences的DataStore
+private val Context.apiDataStore: DataStore<Preferences> by
+        preferencesDataStore(name = "api_settings")
 
-    private val configDataStore = configDataStore
+class ModelConfigManager(private val context: Context) {
 
     // 提供context访问器
     val appContext: Context
@@ -71,422 +52,76 @@ class ModelConfigManager(
 
         // Default API provider type
         private val DEFAULT_API_PROVIDER_TYPE = ApiProviderType.DEEPSEEK
-        private const val OPENAI_CHAT_REASONING_EFFORT_RULE_ID = "openai-chat-reasoning-effort"
-        private const val DEEPSEEK_CHAT_REASONING_EFFORT_RULE_ID = "deepseek-reasoning-effort"
-        private const val DEEPSEEK_RESPONSES_REASONING_EFFORT_RULE_ID = "deepseek-responses-reasoning-effort"
-        private val OPENAI_CHAT_PROVIDER_TYPES =
-                setOf(ApiProviderType.OPENAI.name, ApiProviderType.OPENAI_GENERIC.name)
-        private val OPENAI_CHAT_MATCHER_FIELDS =
-                setOf(
-                        "match",
-                        "modelPrefix",
-                        "modelContains",
-                        "modelSuffix",
-                        "modelRegex",
-                        "firstSegment",
-                        "lastSegmentPrefix",
-                        "lastSegmentContains",
-                        "lastSegmentRegex",
-                )
-
-        internal val json = Json {
-            ignoreUnknownKeys = true
-            isLenient = true
-        }
-
-        internal fun migratePreferencesFromVersionZero(
-                context: Context,
-                preferences: MutablePreferences
-        ) {
-            val configList = preferences[CONFIG_LIST_KEY]?.let { json.decodeFromString<List<String>>(it) }
-                    ?: emptyList()
-            if (configList.isNotEmpty()) return
-
-            val defaultConfigKey = stringPreferencesKey("config_${DEFAULT_CONFIG_ID}")
-            if (preferences[defaultConfigKey].isNullOrBlank()) {
-                val defaultConfig = createFreshDefaultConfig(context)
-                preferences[defaultConfigKey] = json.encodeToString(defaultConfig)
-            }
-            preferences[CONFIG_LIST_KEY] = json.encodeToString(listOf(DEFAULT_CONFIG_ID))
-        }
-
-        internal fun createFreshDefaultConfig(context: Context): ModelConfigData {
-            return ModelConfigData(
-                    id = DEFAULT_CONFIG_ID,
-                    name = context.getString(R.string.model_config_default_name),
-                    apiKey = "",
-                    apiEndpoint = ApiPreferences.DEFAULT_API_ENDPOINT,
-                    modelName = ApiPreferences.DEFAULT_MODEL_NAME,
-                    apiProviderType = DEFAULT_API_PROVIDER_TYPE,
-                    apiProviderTypeId = DEFAULT_API_PROVIDER_TYPE.name,
-                    enableToolCall = ModelConfigDefaults.DEFAULT_ENABLE_TOOL_CALL,
-                    hasCustomParameters = false,
-                    maxTokensEnabled = false,
-                    temperatureEnabled = false,
-                    topPEnabled = false,
-                    topKEnabled = false,
-                    presencePenaltyEnabled = false,
-                    frequencyPenaltyEnabled = false,
-                    repetitionPenaltyEnabled = false,
-                    maxTokens = StandardModelParameters.DEFAULT_MAX_TOKENS,
-                    temperature = StandardModelParameters.DEFAULT_TEMPERATURE,
-                    topP = StandardModelParameters.DEFAULT_TOP_P,
-                    topK = StandardModelParameters.DEFAULT_TOP_K,
-                    presencePenalty = StandardModelParameters.DEFAULT_PRESENCE_PENALTY,
-                    frequencyPenalty = StandardModelParameters.DEFAULT_FREQUENCY_PENALTY,
-                    repetitionPenalty = StandardModelParameters.DEFAULT_REPETITION_PENALTY,
-                    customParameters = "[]",
-                    thinkingConfigurations = thinkingRulesForProvider(DEFAULT_API_PROVIDER_TYPE.name),
-                    thinkingOptionId = firstThinkingOptionIdForModel(
-                            DEFAULT_API_PROVIDER_TYPE.name,
-                            ApiPreferences.DEFAULT_MODEL_NAME
-                    )
-            )
-        }
-
-        internal fun migratePreferencesFromVersionOne(preferences: MutablePreferences) {
-            val configIds = preferences[CONFIG_LIST_KEY]?.let { json.decodeFromString<List<String>>(it) }
-                    ?: emptyList()
-
-            configIds.forEach { configId ->
-                val configKey = stringPreferencesKey("config_${configId}")
-                val configJson = preferences[configKey] ?: return@forEach
-                val config = json.decodeFromString<ModelConfigData>(configJson)
-                val currentThinkingConfigurations = config.thinkingConfigurations.trim()
-                val thinkingConfigurations =
-                        if (currentThinkingConfigurations.isNotEmpty() && currentThinkingConfigurations != "[]") {
-                            config.thinkingConfigurations
-                        } else {
-                            thinkingRulesForProvider(config.apiProviderTypeId)
-                        }
-                val thinkingOptionId =
-                        if (currentThinkingConfigurations.isNotEmpty() && currentThinkingConfigurations != "[]") {
-                            config.thinkingOptionId
-                        } else {
-                            firstThinkingOptionIdForModel(config.apiProviderTypeId, config.modelName)
-                        }
-                if (thinkingConfigurations == config.thinkingConfigurations &&
-                                thinkingOptionId == config.thinkingOptionId) {
-                    return@forEach
-                }
-                preferences[configKey] =
-                        json.encodeToString(
-                                config.copy(
-                                        thinkingConfigurations = thinkingConfigurations,
-                                        thinkingOptionId = thinkingOptionId
-                                )
-                        )
-            }
-        }
-
-        internal fun migratePreferencesFromVersionTwo(preferences: MutablePreferences) {
-            val configIds = preferences[CONFIG_LIST_KEY]?.let { json.decodeFromString<List<String>>(it) }
-                    ?: emptyList()
-
-            configIds.forEach { configId ->
-                val configKey = stringPreferencesKey("config_${configId}")
-                val configJson = preferences[configKey] ?: return@forEach
-                val config = json.decodeFromString<ModelConfigData>(configJson)
-                val providerTypeId = config.apiProviderTypeId.trim().uppercase(Locale.US)
-                if (providerTypeId !in OPENAI_CHAT_PROVIDER_TYPES) {
-                    return@forEach
-                }
-
-                val migratedThinkingConfigurations =
-                        migrateOpenAiChatThinkingConfigurations(
-                                providerTypeId,
-                                config.thinkingConfigurations
-                        )
-                if (migratedThinkingConfigurations == config.thinkingConfigurations) {
-                    return@forEach
-                }
-
-                // Version 2 stored OpenAI Chat's built-in reasoning rule as model-agnostic.
-                // Version 3 narrows the built-in rule set while leaving custom rules in place.
-                val migratedMapping =
-                        ThinkingQualityMappingRegistry.resolve(
-                                config.apiProviderTypeId,
-                                config.modelName,
-                                migratedThinkingConfigurations
-                        )
-                val migratedThinkingOptionId =
-                        if (migratedMapping.optionFor(config.thinkingOptionId) != null) {
-                            config.thinkingOptionId
-                        } else {
-                            migratedMapping.options.firstOrNull()?.id.orEmpty()
-                        }
-
-                preferences[configKey] =
-                        json.encodeToString(
-                                config.copy(
-                                        thinkingConfigurations = migratedThinkingConfigurations,
-                                        thinkingOptionId = migratedThinkingOptionId
-                                )
-                        )
-            }
-        }
-
-        private fun migrateOpenAiChatThinkingConfigurations(
-                providerTypeId: String,
-                thinkingConfigurations: String
-        ): String {
-            val sourceRules = thinkingRulesJsonArray(thinkingConfigurations)
-            val currentRules = thinkingRulesJsonArray(thinkingRulesForProvider(providerTypeId))
-            val existingCurrentRuleIds = currentRuleIds(sourceRules)
-            val targetRules = JSONArray()
-            var changed = false
-
-            for (index in 0 until sourceRules.length()) {
-                val sourceRule = sourceRules.optJSONObject(index)
-                if (sourceRule == null) {
-                    targetRules.put(sourceRules.get(index))
-                    continue
-                }
-
-                if (isLegacyOpenAiChatReasoningRule(sourceRule)) {
-                    for (currentIndex in 0 until currentRules.length()) {
-                        val currentRule = currentRules.optJSONObject(currentIndex) ?: continue
-                        val currentRuleId = currentRule.optString("id", "").trim()
-                        if (currentRuleId !in existingCurrentRuleIds) {
-                            targetRules.put(JSONObject(currentRule.toString()))
-                        }
-                    }
-                    changed = true
-                } else {
-                    targetRules.put(JSONObject(sourceRule.toString()))
-                }
-            }
-
-            return if (changed) targetRules.toString() else thinkingConfigurations
-        }
-
-        private fun currentRuleIds(rules: JSONArray): Set<String> {
-            val ruleIds = mutableSetOf<String>()
-            for (index in 0 until rules.length()) {
-                val rule = rules.optJSONObject(index) ?: continue
-                val ruleId = rule.optString("id", "").trim()
-                if (ruleId.isNotEmpty() && !isLegacyOpenAiChatReasoningRule(rule)) {
-                    ruleIds.add(ruleId)
-                }
-            }
-            return ruleIds
-        }
-
-        private fun isLegacyOpenAiChatReasoningRule(rule: JSONObject): Boolean {
-            val ruleId = rule.optString("id", "").trim()
-            return ruleId == OPENAI_CHAT_REASONING_EFFORT_RULE_ID &&
-                    OPENAI_CHAT_MATCHER_FIELDS.none(rule::has)
-        }
-
-        private fun thinkingRulesJsonArray(thinkingConfigurations: String): JSONArray {
-            val text = thinkingConfigurations.trim().ifEmpty { "[]" }
-            return when {
-                text.startsWith("[") -> JSONArray(text)
-                text.startsWith("{") -> {
-                    val objectValue = JSONObject(text)
-                    objectValue.optJSONArray("rules") ?: JSONArray().put(objectValue)
-                }
-                else -> JSONArray(text)
-            }
-        }
-
-        internal fun migratePreferencesFromVersionThree(preferences: MutablePreferences) {
-            val configIds = preferences[CONFIG_LIST_KEY]?.let { json.decodeFromString<List<String>>(it) }
-                    ?: emptyList()
-
-            configIds.forEach { configId ->
-                val configKey = stringPreferencesKey("config_${configId}")
-                val configJson = preferences[configKey] ?: return@forEach
-                val config = json.decodeFromString<ModelConfigData>(configJson)
-                if (!isDeepSeekProvider(config.apiProviderTypeId)) {
-                    return@forEach
-                }
-
-                val thinkingConfigurations =
-                        addDeepSeekResponsesThinkingRule(config.thinkingConfigurations)
-                if (thinkingConfigurations == config.thinkingConfigurations) {
-                    return@forEach
-                }
-
-                preferences[configKey] =
-                        json.encodeToString(
-                                config.copy(thinkingConfigurations = thinkingConfigurations)
-                        )
-            }
-        }
-
-        private fun isDeepSeekProvider(providerTypeId: String): Boolean =
-                providerTypeId.equals(ApiProviderType.DEEPSEEK.name, ignoreCase = true)
-
-        private fun isDeepSeekResponsesEndpoint(apiEndpoint: String): Boolean =
-                apiEndpoint.trim()
-                        .substringBefore('?')
-                        .substringBefore('#')
-                        .trimEnd('/')
-                        .endsWith("/responses", ignoreCase = true)
-
-        internal fun addDeepSeekResponsesThinkingRule(thinkingConfigurations: String): String {
-            val sourceRules = thinkingRulesJsonArray(thinkingConfigurations)
-            if (sourceRules.hasThinkingRuleId(DEEPSEEK_RESPONSES_REASONING_EFFORT_RULE_ID)) {
-                return thinkingConfigurations
-            }
-
-            val defaultRules = thinkingRulesJsonArray(thinkingRulesForProvider(ApiProviderType.DEEPSEEK.name))
-            val responsesRule = defaultRules.firstThinkingRuleById(DEEPSEEK_RESPONSES_REASONING_EFFORT_RULE_ID)
-                    ?: return thinkingConfigurations
-
-            val targetRules = JSONArray()
-            var inserted = false
-            for (index in 0 until sourceRules.length()) {
-                val rule = sourceRules.optJSONObject(index)
-                if (!inserted && rule?.optString("id", "") == DEEPSEEK_CHAT_REASONING_EFFORT_RULE_ID) {
-                    targetRules.put(JSONObject(responsesRule.toString()))
-                    inserted = true
-                }
-                targetRules.put(sourceRules.get(index))
-            }
-
-            return if (inserted) targetRules.toString() else thinkingConfigurations
-        }
-
-        private fun JSONArray.hasThinkingRuleId(ruleId: String): Boolean =
-                firstThinkingRuleById(ruleId) != null
-
-        private fun JSONArray.firstThinkingRuleById(ruleId: String): JSONObject? {
-            for (index in 0 until length()) {
-                val rule = optJSONObject(index) ?: continue
-                if (rule.optString("id", "") == ruleId) {
-                    return rule
-                }
-            }
-            return null
-        }
-
-        internal fun thinkingRulesForProvider(providerTypeId: String): String =
-                ModelThinkingConfigDefaults.forProvider(providerTypeId)
-
-        internal fun firstThinkingOptionIdForProvider(providerTypeId: String): String =
-                firstThinkingOptionIdForModel(providerTypeId, "")
-
-        internal fun firstThinkingOptionIdForModel(
-                providerTypeId: String,
-                modelName: String,
-                apiEndpoint: String = ""
-        ): String {
-                val rules = thinkingRulesForProvider(providerTypeId)
-                return firstThinkingOptionIdForRules(providerTypeId, modelName, rules, apiEndpoint)
-        }
-
-        internal fun firstThinkingOptionIdForRules(
-                providerTypeId: String,
-                modelName: String,
-                thinkingConfigurations: String,
-                apiEndpoint: String = ""
-        ): String {
-                return ThinkingQualityMappingRegistry
-                        .resolve(providerTypeId, modelName, apiEndpoint, thinkingConfigurations)
-                        .options
-                        .firstOrNull()
-                        ?.id
-                        .orEmpty()
-        }
-
-        internal fun nextThinkingRulesForProvider(
-                current: ModelConfigData,
-                providerTypeId: String,
-                apiEndpoint: String = ""
-        ): String =
-                if (current.apiProviderTypeId == providerTypeId) {
-                    if (isDeepSeekProvider(providerTypeId) && isDeepSeekResponsesEndpoint(apiEndpoint)) {
-                        addDeepSeekResponsesThinkingRule(current.thinkingConfigurations)
-                    } else {
-                        current.thinkingConfigurations
-                    }
-                } else {
-                    thinkingRulesForProvider(providerTypeId)
-                }
-
-        internal fun nextThinkingOptionIdForProvider(
-                current: ModelConfigData,
-                providerTypeId: String,
-                modelName: String,
-                apiEndpoint: String = ""
-        ): String =
-                // Keep a model's choice while editing it; built-in defaults apply only on provider changes.
-                if (current.apiProviderTypeId == providerTypeId) {
-                    current.thinkingOptionId
-                } else {
-                    firstThinkingOptionIdForModel(providerTypeId, modelName, apiEndpoint)
-                }
     }
 
     // Json解析器，支持宽松模式
-    private val json = ModelConfigManager.json
+    private val json = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+    }
 
     // 获取所有配置ID列表
     val configListFlow: Flow<List<String>> =
-            configDataStore.data.map { preferences ->
+            context.modelConfigDataStore.data.map { preferences ->
                 val configList = preferences[CONFIG_LIST_KEY] ?: ""
                 if (configList.isEmpty()) emptyList()
                 else json.decodeFromString<List<String>>(configList)
             }
 
-    // 所有配置摘要的响应式版本。主界面模型选择器必须持续收集它，才能在配置页
-    // 新增或修改模型后立即更新，而不需要重新进入配置页。
-    val configSummariesFlow: Flow<List<ModelConfigSummary>> =
-            configDataStore.data.map { preferences ->
-                readConfigSummariesFromPrefs(preferences)
+    // 删除获取当前活跃配置ID的流
+
+    // 初始化，确保至少有一个默认配置
+    suspend fun initializeIfNeeded() {
+        // 检查配置列表，如果为空则创建默认配置
+        // This is important for first-time users
+        val configList = configListFlow.first()
+        if (configList.isEmpty()) {
+            val defaultConfig = createFreshDefaultConfig()
+            saveConfigToDataStore(defaultConfig)
+
+            // 保存配置列表，移除活跃ID
+            context.modelConfigDataStore.edit { preferences ->
+                preferences[CONFIG_LIST_KEY] = json.encodeToString(listOf(DEFAULT_CONFIG_ID))
             }
-
-    private fun readConfigListFromPrefs(prefs: Preferences): List<String> {
-        val configList = prefs[CONFIG_LIST_KEY] ?: ""
-        return if (configList.isEmpty()) emptyList()
-        else json.decodeFromString<List<String>>(configList)
-    }
-
-    private fun readConfigSummariesFromPrefs(prefs: Preferences): List<ModelConfigSummary> {
-        return readConfigListFromPrefs(prefs).map { configId ->
-            val configJson = prefs[stringPreferencesKey("config_${configId}")]
-            val config =
-                    if (configJson != null) {
-                        try {
-                            json.decodeFromString<ModelConfigData>(configJson)
-                        } catch (_: Exception) {
-                            fallbackConfigFor(configId)
-                        }
-                    } else {
-                        fallbackConfigFor(configId)
-                    }
-            ModelConfigSummary(
-                    id = config.id,
-                    name = config.name,
-                    modelName = config.modelName,
-                    apiEndpoint = config.apiEndpoint,
-                    apiProviderType = config.apiProviderType,
-                    apiProviderTypeId = config.apiProviderTypeId,
-                    thinkingConfigurations = config.thinkingConfigurations,
-                    thinkingOptionId = config.thinkingOptionId
-            )
-        }
-    }
-
-    private fun fallbackConfigFor(configId: String): ModelConfigData {
-        return if (configId == DEFAULT_CONFIG_ID) {
-            createFreshDefaultConfig()
         } else {
-            ModelConfigData(id = configId, name = context.getString(R.string.model_config_config_id, configId))
+            AppLogger.d("CONFIG_TIMING", "配置列表不为空，跳过初始化")
         }
     }
 
     // 从原有ApiPreferences创建默认配置
     private fun createFreshDefaultConfig(): ModelConfigData {
-        return createFreshDefaultConfig(context)
+        return ModelConfigData(
+                id = DEFAULT_CONFIG_ID,
+                name = context.getString(R.string.model_config_default_name),
+                apiKey = "",
+                apiEndpoint = ApiPreferences.DEFAULT_API_ENDPOINT,
+                modelName = ApiPreferences.DEFAULT_MODEL_NAME,
+                apiProviderType = DEFAULT_API_PROVIDER_TYPE,
+                apiProviderTypeId = DEFAULT_API_PROVIDER_TYPE.name,
+                enableToolCall = ModelConfigDefaults.DEFAULT_ENABLE_TOOL_CALL,
+                hasCustomParameters = false,
+                maxTokensEnabled = false,
+                temperatureEnabled = false,
+                topPEnabled = false,
+                topKEnabled = false,
+                presencePenaltyEnabled = false,
+                frequencyPenaltyEnabled = false,
+                repetitionPenaltyEnabled = false,
+                maxTokens = StandardModelParameters.DEFAULT_MAX_TOKENS,
+                temperature = StandardModelParameters.DEFAULT_TEMPERATURE,
+                topP = StandardModelParameters.DEFAULT_TOP_P,
+                topK = StandardModelParameters.DEFAULT_TOP_K,
+                presencePenalty = StandardModelParameters.DEFAULT_PRESENCE_PENALTY,
+                frequencyPenalty = StandardModelParameters.DEFAULT_FREQUENCY_PENALTY,
+                repetitionPenalty = StandardModelParameters.DEFAULT_REPETITION_PENALTY,
+                customParameters = "[]"
+        )
     }
 
     // 保存配置
     suspend fun saveModelConfig(config: ModelConfigData) {
         val configKey = stringPreferencesKey("config_${config.id}")
-        configDataStore.edit { preferences ->
+        context.modelConfigDataStore.edit { preferences ->
             preferences[configKey] = json.encodeToString(config)
         }
     }
@@ -494,7 +129,7 @@ class ModelConfigManager(
     // 从DataStore加载配置
     private suspend fun loadConfigFromDataStore(configId: String): ModelConfigData? {
         val configKey = stringPreferencesKey("config_${configId}")
-        return configDataStore.data.first().let { preferences ->
+        return context.modelConfigDataStore.data.first().let { preferences ->
             val configJson = preferences[configKey]
             if (configJson != null) {
                 try {
@@ -520,7 +155,7 @@ class ModelConfigManager(
     // 将配置保存到DataStore
     private suspend fun saveConfigToDataStore(config: ModelConfigData) {
         val configKey = stringPreferencesKey("config_${config.id}")
-        configDataStore.edit { preferences ->
+        context.modelConfigDataStore.edit { preferences ->
             preferences[configKey] = json.encodeToString(config)
         }
     }
@@ -531,7 +166,7 @@ class ModelConfigManager(
     ): ModelConfigData {
         val configKey = stringPreferencesKey("config_${configId}")
         var updated: ModelConfigData? = null
-        configDataStore.edit { preferences ->
+        context.modelConfigDataStore.edit { preferences ->
             val current =
                     run {
                         val configJson = preferences[configKey]
@@ -563,7 +198,7 @@ class ModelConfigManager(
 
     // 获取指定ID的配置
     fun getModelConfigFlow(configId: String): Flow<ModelConfigData> {
-        return configDataStore.data.map { preferences ->
+        return context.modelConfigDataStore.data.map { preferences ->
             val config = loadConfigFromDataStore(configId) ?: ModelConfigData(id = configId, name = context.getString(R.string.model_config_config_id, configId))
             config
         }
@@ -587,7 +222,23 @@ class ModelConfigManager(
 
     // 获取所有配置的摘要信息
     suspend fun getAllConfigSummaries(): List<ModelConfigSummary> {
-        return readConfigSummariesFromPrefs(configDataStore.data.first())
+        val configIds = configListFlow.first()
+        val summaries = mutableListOf<ModelConfigSummary>()
+
+        for (id in configIds) {
+            val config = getModelConfigFlow(id).first()
+            summaries.add(
+                    ModelConfigSummary(
+                            id = config.id,
+                            name = config.name,
+                            modelName = config.modelName,
+                            apiEndpoint = config.apiEndpoint,
+                            apiProviderType = config.apiProviderType
+                    )
+            )
+        }
+
+        return summaries
     }
 
     // 创建新配置
@@ -601,8 +252,6 @@ class ModelConfigManager(
                         name = name,
                         apiProviderType = ApiProviderType.OPENAI_GENERIC,
                         apiProviderTypeId = ApiProviderType.OPENAI_GENERIC.name,
-                        thinkingConfigurations = thinkingRulesForProvider(ApiProviderType.OPENAI_GENERIC.name),
-                        thinkingOptionId = firstThinkingOptionIdForProvider(ApiProviderType.OPENAI_GENERIC.name),
                         enableToolCall = ModelConfigDefaults.DEFAULT_ENABLE_TOOL_CALL
                 )
 
@@ -611,41 +260,30 @@ class ModelConfigManager(
 
         // 更新配置列表
         configList.add(configId)
-        configDataStore.edit { preferences ->
+        context.modelConfigDataStore.edit { preferences ->
             preferences[CONFIG_LIST_KEY] = json.encodeToString(configList)
         }
 
         return configId
     }
 
-    // 删除配置并清理所有功能对该配置的引用
-    suspend fun deleteConfig(configId: String): List<FunctionType> {
+    // 删除配置
+    suspend fun deleteConfig(configId: String) {
         if (configId == DEFAULT_CONFIG_ID) {
             // 不允许删除默认配置
-            return emptyList()
+            return
         }
 
         val configList = configListFlow.first().toMutableList()
-        if (!configList.remove(configId)) {
-            return emptyList()
-        }
 
-        val functionalConfigManager = FunctionalConfigManager(context)
-        val mappingRepair = remapDeletedConfigReferences(
-            mapping = functionalConfigManager.functionConfigMappingWithIndexFlow.first(),
-            deletedConfigId = configId,
-        )
-        if (mappingRepair.affectedFunctions.isNotEmpty()) {
-            functionalConfigManager.saveFunctionConfigMappingWithIndex(mappingRepair.mapping)
-        }
-
-        configDataStore.edit { preferences ->
+        // 从列表中移除
+        configList.remove(configId)
+        context.modelConfigDataStore.edit { preferences ->
             // 删除配置记录 - 修复null赋值问题
             preferences.remove(stringPreferencesKey("config_${configId}"))
             // 更新配置列表
             preferences[CONFIG_LIST_KEY] = json.encodeToString(configList)
-        }
-        return mappingRepair.affectedFunctions
+                                }
     }
 
     // 更新配置基本信息（名称等）
@@ -680,9 +318,7 @@ class ModelConfigManager(
                     apiEndpoint = apiEndpoint,
                     modelName = modelName,
                     apiProviderType = apiProviderType,
-                    apiProviderTypeId = apiProviderTypeId,
-                    thinkingConfigurations = nextThinkingRulesForProvider(it, apiProviderTypeId, apiEndpoint),
-                    thinkingOptionId = nextThinkingOptionIdForProvider(it, apiProviderTypeId, modelName, apiEndpoint)
+                    apiProviderTypeId = apiProviderTypeId
             )
         }
     }
@@ -705,8 +341,6 @@ class ModelConfigManager(
                     modelName = modelName,
                     apiProviderType = apiProviderType,
                     apiProviderTypeId = apiProviderTypeId,
-                    thinkingConfigurations = nextThinkingRulesForProvider(it, apiProviderTypeId, apiEndpoint),
-                    thinkingOptionId = nextThinkingOptionIdForProvider(it, apiProviderTypeId, modelName, apiEndpoint),
                     mnnForwardType = mnnForwardType,
                     mnnThreadCount = mnnThreadCount
             )
@@ -729,8 +363,6 @@ class ModelConfigManager(
             enableDirectAudioProcessing: Boolean,
             enableDirectVideoProcessing: Boolean,
             enableGoogleSearch: Boolean,
-            enableDeepSeekWebSearch: Boolean,
-            enableCodexWebSearch: Boolean,
             enableClaude1hPromptCache: Boolean,
             enableToolCall: Boolean
     ): ModelConfigData {
@@ -741,8 +373,6 @@ class ModelConfigManager(
                     modelName = modelName,
                     apiProviderType = apiProviderType,
                     apiProviderTypeId = apiProviderTypeId,
-                    thinkingConfigurations = nextThinkingRulesForProvider(it, apiProviderTypeId, apiEndpoint),
-                    thinkingOptionId = nextThinkingOptionIdForProvider(it, apiProviderTypeId, modelName, apiEndpoint),
                     mnnForwardType = mnnForwardType,
                     mnnThreadCount = mnnThreadCount,
                     llamaThreadCount = llamaThreadCount.coerceAtLeast(1),
@@ -752,23 +382,9 @@ class ModelConfigManager(
                     enableDirectAudioProcessing = enableDirectAudioProcessing,
                     enableDirectVideoProcessing = enableDirectVideoProcessing,
                     enableGoogleSearch = enableGoogleSearch,
-                    enableDeepSeekWebSearch = enableDeepSeekWebSearch,
-                    enableCodexWebSearch = enableCodexWebSearch,
                     enableClaude1hPromptCache = enableClaude1hPromptCache,
                     enableToolCall = enableToolCall
             )
-        }
-    }
-
-    suspend fun updateThinkingConfigurations(configId: String, thinkingConfigurations: String): ModelConfigData {
-        return updateConfigInternal(configId) {
-            it.copy(thinkingConfigurations = thinkingConfigurations)
-        }
-    }
-
-    suspend fun updateThinkingOptionId(configId: String, thinkingOptionId: String): ModelConfigData {
-        return updateConfigInternal(configId) {
-            it.copy(thinkingOptionId = thinkingOptionId.trim())
         }
     }
 
@@ -899,14 +515,6 @@ class ModelConfigManager(
         return updateConfigInternal(configId) { it.copy(enableGoogleSearch = enableGoogleSearch) }
     }
 
-    suspend fun updateDeepSeekWebSearch(configId: String, enableDeepSeekWebSearch: Boolean): ModelConfigData {
-        return updateConfigInternal(configId) { it.copy(enableDeepSeekWebSearch = enableDeepSeekWebSearch) }
-    }
-
-    suspend fun updateCodexWebSearch(configId: String, enableCodexWebSearch: Boolean): ModelConfigData {
-        return updateConfigInternal(configId) { it.copy(enableCodexWebSearch = enableCodexWebSearch) }
-    }
-
     suspend fun updateClaude1hPromptCache(configId: String, enableClaude1hPromptCache: Boolean): ModelConfigData {
         return updateConfigInternal(configId) {
             it.copy(enableClaude1hPromptCache = enableClaude1hPromptCache)
@@ -941,31 +549,15 @@ class ModelConfigManager(
             summaryTokenThreshold: Float,
             enableSummaryByMessageCount: Boolean,
             summaryMessageCountThreshold: Int,
-            summaryCustomRules: String? = null,
-            summarySectionOverrides: List<SummarySectionOverride>? = null
+            summaryCustomRules: String = ""
     ): ModelConfigData {
-        return updateConfigInternal(configId) { current ->
-            current.copy(
+        return updateConfigInternal(configId) {
+            it.copy(
                     enableSummary = enableSummary,
                     summaryTokenThreshold = summaryTokenThreshold,
                     enableSummaryByMessageCount = enableSummaryByMessageCount,
                     summaryMessageCountThreshold = summaryMessageCountThreshold,
-                    summaryCustomRules = summaryCustomRules ?: current.summaryCustomRules,
-                    summarySectionOverrides =
-                        summarySectionOverrides ?: current.summarySectionOverrides
-            )
-        }
-    }
-
-    suspend fun updateSummaryDialogueReviewSettings(
-            configId: String,
-            enabled: Boolean,
-            title: String
-    ): ModelConfigData {
-        return updateConfigInternal(configId) {
-            it.copy(
-                    enableSummaryDialogueReview = enabled,
-                    summaryDialogueReviewTitle = title
+                    summaryCustomRules = summaryCustomRules
             )
         }
     }
@@ -1165,7 +757,7 @@ class ModelConfigManager(
             
             // 更新配置列表
             if (newCount > 0) {
-                configDataStore.edit { preferences ->
+                context.modelConfigDataStore.edit { preferences ->
                     preferences[CONFIG_LIST_KEY] = json.encodeToString(existingConfigList)
                 }
             }

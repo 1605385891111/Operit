@@ -57,7 +57,7 @@ import kotlinx.coroutines.withContext
 import com.ai.assistance.operit.ui.floating.ui.pet.AvatarEmotionManager
 import com.ai.assistance.operit.api.voice.VoiceService
 import com.ai.assistance.operit.api.voice.VoiceServiceFactory
-import com.ai.assistance.operit.data.preferences.SpeechServiceProfilesPreferences
+import com.ai.assistance.operit.data.preferences.SpeechServicesPreferences
 import com.ai.assistance.operit.data.preferences.ActivePromptManager
 import com.ai.assistance.operit.data.preferences.CharacterCardManager
 import com.ai.assistance.operit.data.model.ActivePrompt
@@ -135,7 +135,7 @@ class ChatViewModel(private val context: Context) : ViewModel() {
     private var voiceStateCollectionJob: Job? = null
     private var speechPlaybackJob: Job? = null
     private var speechControlsHideJob: Job? = null
-    private val speechServiceProfiles = SpeechServiceProfilesPreferences(context)
+    private val speechServicesPreferences = SpeechServicesPreferences(context)
     private val activePromptManager = ActivePromptManager.getInstance(context)
     private val characterCardManager = CharacterCardManager.getInstance(context)
 
@@ -214,7 +214,7 @@ class ChatViewModel(private val context: Context) : ViewModel() {
 
     // 思考模式状态现在由ApiConfigDelegate管理
     val enableThinkingMode: StateFlow<Boolean> by lazy { apiConfigDelegate.enableThinkingMode }
-    val thinkingOptionId: StateFlow<String> by lazy { apiConfigDelegate.thinkingOptionId }
+    val thinkingQualityLevel: StateFlow<Int> by lazy { apiConfigDelegate.thinkingQualityLevel }
     val enableMemoryAutoUpdate: StateFlow<Boolean> by lazy { apiConfigDelegate.enableMemoryAutoUpdate }
     val enableTools: StateFlow<Boolean> by lazy { apiConfigDelegate.enableTools }
     val toolPromptVisibility: StateFlow<Map<String, Boolean>> by lazy { apiConfigDelegate.toolPromptVisibility }
@@ -592,8 +592,8 @@ class ChatViewModel(private val context: Context) : ViewModel() {
         apiConfigDelegate.toggleThinkingMode()
     }
 
-    fun updateThinkingOptionId(optionId: String) {
-        apiConfigDelegate.updateThinkingOptionId(optionId)
+    fun updateThinkingQualityLevel(level: Int) {
+        apiConfigDelegate.updateThinkingQualityLevel(level)
     }
 
     // 切换记忆自动更新的方法现在委托给ApiConfigDelegate
@@ -899,7 +899,7 @@ class ChatViewModel(private val context: Context) : ViewModel() {
                 // 检查是否是群聊
                 val currentChat = chatHistoryDelegate.chatHistories.value.firstOrNull { it.id == currentChatId }
                 val isGroupChat = currentChat?.characterGroupId != null
-                val summaryConfig = messageCoordinationDelegate.readSummaryConfig()
+                val summaryCustomRules = messageCoordinationDelegate.readSummaryCustomRules()
 
                 val summaryMessage = AIMessageManager.summarizeMemory(
                     enhancedAiService!!,
@@ -907,7 +907,7 @@ class ChatViewModel(private val context: Context) : ViewModel() {
                     chatId = currentChatId,
                     autoContinue = false,
                     isGroupChat = isGroupChat,
-                    summaryConfig = summaryConfig
+                    summaryCustomRules = summaryCustomRules
                 )
 
                 if (summaryMessage != null) {
@@ -923,7 +923,7 @@ class ChatViewModel(private val context: Context) : ViewModel() {
                         messageCoordinationDelegate.generateRoleScopedSummariesForChat(
                             enhancedAiService = enhancedAiService!!,
                             chatId = currentChatId,
-                            summaryConfig = summaryConfig
+                            summaryCustomRules = summaryCustomRules
                         )
                     }
 
@@ -2904,11 +2904,16 @@ class ChatViewModel(private val context: Context) : ViewModel() {
 
     /** 初始化语音服务 */
     private fun initializeVoiceService() {
-        // 监听当前 TTS 档案的变化
+        // 监听TTS服务类型和配置的变化
         viewModelScope.launch {
-            speechServiceProfiles.currentTtsProfileFlow.collect { profile ->
+            combine(
+                speechServicesPreferences.ttsServiceTypeFlow,
+                speechServicesPreferences.ttsHttpConfigFlow
+            ) { type, config ->
+                type to config
+            }.collect { (type, _) ->
                 try {
-                    AppLogger.d(TAG, "TTS档案变化，重新初始化语音服务: profile=${profile.id} type=${profile.serviceType}")
+                    AppLogger.d(TAG, "TTS配置变化，重新初始化语音服务: type=$type")
 
                     val initialized = recreateVoiceService()
                     if (!initialized) {
@@ -3033,7 +3038,7 @@ class ChatViewModel(private val context: Context) : ViewModel() {
                     return@launch
                 }
 
-                val cleanerRegexs = speechServiceProfiles.getCurrentTtsProfile().cleanerRegexs
+                val cleanerRegexs = speechServicesPreferences.ttsCleanerRegexsFlow.first()
                 val cleanedText = TtsCleaner.clean(message, cleanerRegexs)
                 val cleanMessage = WaifuMessageProcessor.cleanContentForWaifu(cleanedText)
                 AppLogger.d(

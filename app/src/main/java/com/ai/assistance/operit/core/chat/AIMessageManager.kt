@@ -20,7 +20,6 @@ import com.ai.assistance.operit.core.tools.packTool.PackageManager
 import com.ai.assistance.operit.data.model.AITool
 import com.ai.assistance.operit.data.model.AttachmentInfo
 import com.ai.assistance.operit.data.model.ChatMessage
-import com.ai.assistance.operit.data.model.ConversationSummaryConfig
 import com.ai.assistance.operit.data.model.ChatMessageTimestampAllocator
 import com.ai.assistance.operit.data.model.ToolParameter
 import com.ai.assistance.operit.data.model.PromptFunctionType
@@ -55,13 +54,6 @@ internal fun logMessageTiming(
     val elapsed = SystemClock.elapsedRealtime() - startTimeMs
     val suffix = details?.takeIf { it.isNotBlank() }?.let { ", $it" } ?: ""
     AppLogger.d(MESSAGE_PROCESS_TIMING_TAG, "$stage 耗时=${elapsed}ms$suffix")
-}
-
-internal fun formatDialogueReviewHeader(defaultHeader: String, customTitle: String): String {
-    val normalizedTitle =
-        customTitle.replace(Regex("\\s+"), " ").trim().trimEnd(':', '：')
-    val separator = if (defaultHeader.contains('：')) '：' else ':'
-    return if (normalizedTitle.isBlank()) defaultHeader else "\n\n$normalizedTitle$separator\n"
 }
 
 /**
@@ -122,7 +114,6 @@ object AIMessageManager {
      * @param workspaceEnv 工作区环境标签。
      * @param replyToMessage 回复消息。
      * @param enableDirectImageProcessing 是否将图片附件转换为link标签（用于直接图片处理）。
-     * @param enableDirectFileProcessing 是否将PDF附件转换为文件link（用于直接文件处理）。
      * @param enableDirectAudioProcessing 是否将音频附件转换为link标签（用于直接音频处理）。
      * @param enableDirectVideoProcessing 是否将视频附件转换为link标签（用于直接视频处理）。
      * @return 格式化后的完整消息字符串。
@@ -135,9 +126,8 @@ object AIMessageManager {
         workspacePath: String? = null,
         workspaceEnv: String? = null,
         replyToMessage: ChatMessage? = null,
-         enableDirectImageProcessing: Boolean = false,
-         enableDirectFileProcessing: Boolean = false,
-         enableDirectAudioProcessing: Boolean = false,
+        enableDirectImageProcessing: Boolean = false,
+        enableDirectAudioProcessing: Boolean = false,
         enableDirectVideoProcessing: Boolean = false,
         chatId: String? = null,
         roleCardId: String? = null,
@@ -248,15 +238,6 @@ object AIMessageManager {
                         }
                         "<attachment $attributes>${attachment.content}</attachment>"
                     }
-                } else if (
-                    enableDirectFileProcessing &&
-                    attachment.mimeType.equals("application/pdf", ignoreCase = true)
-                ) {
-                    val fileId = MediaPoolManager.addMedia(attachment.filePath, attachment.mimeType)
-                    check(fileId != "error") {
-                        "Failed to add PDF attachment to the media pool: ${attachment.filePath}"
-                    }
-                    MediaLinkBuilder.file(context, fileId, attachment.fileName)
                 } else if (enableDirectAudioProcessing && attachment.mimeType.startsWith("audio/", ignoreCase = true)) {
                     try {
                         val audioId = MediaPoolManager.addMedia(attachment.filePath, attachment.mimeType)
@@ -312,7 +293,7 @@ object AIMessageManager {
         logMessageTiming(
             stage = "buildUserMessageContent.attachmentTags",
             startTimeMs = attachmentTagsStartTime,
-            details = "attachments=${attachments.size}, length=${attachmentTags.length}, directImage=$enableDirectImageProcessing, directFile=$enableDirectFileProcessing, directAudio=$enableDirectAudioProcessing, directVideo=$enableDirectVideoProcessing"
+            details = "attachments=${attachments.size}, length=${attachmentTags.length}, directImage=$enableDirectImageProcessing, directAudio=$enableDirectAudioProcessing, directVideo=$enableDirectVideoProcessing"
         )
 
         // 4. 组合最终消息
@@ -476,7 +457,6 @@ object AIMessageManager {
                 val pluginStream = pluginExecution.stream.share(
                     scope = scope,
                     replay = Int.MAX_VALUE,
-                    propagateCompletionCause = false,
                     onComplete = {
                         activeMessageProcessingControllerByChatId.remove(chatKey)
                         activeEnhancedAiServiceByChatId.remove(chatKey)
@@ -535,9 +515,6 @@ object AIMessageManager {
             ).shareRevisable(
                 scope = scope,
                 replay = Int.MAX_VALUE,
-                // Provider 终态异常由消息处理主订阅读取 completionCause；
-                // 其他订阅者只观察文本，不应因同一网络错误触发全局未捕获异常。
-                propagateCompletionCause = false,
                 onComplete = {
                     activeMessageProcessingControllerByChatId.remove(chatKey)
                     activeEnhancedAiServiceByChatId.remove(chatKey)
@@ -717,7 +694,7 @@ object AIMessageManager {
         chatId: String,
         autoContinue: Boolean = false,
         isGroupChat: Boolean = false,
-        summaryConfig: ConversationSummaryConfig = ConversationSummaryConfig()
+        summaryCustomRules: String? = null
     ): ChatMessage? {
         val lastSummaryIndex = messages.indexOfLast { it.sender == "summary" }
         val previousSummary = if (lastSummaryIndex != -1) messages[lastSummaryIndex].content.trim() else null
@@ -1088,12 +1065,7 @@ object AIMessageManager {
 
         return try {
             AppLogger.d(TAG, "开始使用AI生成对话总结：总结 ${messagesToSummarize.size} 条消息")
-            val summary =
-                enhancedAiService.generateSummary(
-                    conversationToSummarize,
-                    previousSummary,
-                    summaryConfig
-                )
+            val summary = enhancedAiService.generateSummary(conversationToSummarize, previousSummary, summaryCustomRules)
             AppLogger.d(TAG, "AI生成总结完成: ${summary.take(50)}...")
 
             if (summary.isBlank()) {
@@ -1102,17 +1074,12 @@ object AIMessageManager {
             } else {
                 // 如果是自动续写，在总结消息尾部添加续写提示
                 val trimmedSummary = summary.trim()
-                val useEnglish = !LocaleUtils.usesChineseContent(context)
+                val useEnglish = LocaleUtils.getCurrentLanguage(context).lowercase().startsWith("en")
                 val packageWarmupBlock = buildPackageWarmupBlock(messagesToSummarize, useEnglish)
                 val summaryWithQuotes = buildString {
                     append(trimmedSummary)
-                    if (summaryConfig.dialogueReviewEnabled && conversationReviewEntries.isNotEmpty()) {
-                        append(
-                            formatDialogueReviewHeader(
-                                defaultHeader = context.getString(R.string.ai_message_dialogue_review),
-                                customTitle = summaryConfig.dialogueReviewTitle
-                            )
-                        )
+                    if (conversationReviewEntries.isNotEmpty()) {
+                        append(context.getString(R.string.ai_message_dialogue_review))
                         conversationReviewEntries.forEach { (speaker, content) ->
                             append("- ")
                             append(speaker)
@@ -1159,7 +1126,7 @@ object AIMessageManager {
         chatId: String,
         messages: List<ChatMessage>,
         characterCardIds: List<String>,
-        summaryConfig: ConversationSummaryConfig = ConversationSummaryConfig()
+        summaryCustomRules: String? = null
     ): Int {
         var generated = 0
         characterCardIds.distinct().forEach { characterCardId ->
@@ -1202,7 +1169,7 @@ object AIMessageManager {
                     chatId = chatId,
                     autoContinue = false,
                     isGroupChat = false,
-                    summaryConfig = summaryConfig
+                    summaryCustomRules = summaryCustomRules
                 )
             }.getOrNull() ?: return@forEach
             val newCoveredUntil = visibleMessages.maxOf { message -> message.timestamp }
