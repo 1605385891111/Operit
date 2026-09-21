@@ -123,11 +123,14 @@ class MemorySpaceProfileDocumentRepository private constructor(private val conte
     suspend fun loadAsOf(memorySpaceId: String, timestampMillis: Long): String {
         initialize()
         val versions = readVersions(memorySpaceId)
-        if (versions.isEmpty()) return load(memorySpaceId)
-        val hit = versions.lastOrNull { it.first <= timestampMillis }
+        if (versions.isEmpty()) {
+            AppLogger.w(TAG, "记忆版本日志为空（功能上线前的空间），回退到当前文档作近似快照: $memorySpaceId")
+            return load(memorySpaceId)
+        }
+        val hit = versions.filter { it.first <= timestampMillis }.maxByOrNull { it.first }
         if (hit == null) {
             AppLogger.w(TAG, "分支点早于记忆版本日志起点，回退为最早版本（近似快照）: $memorySpaceId")
-            return versions.first().second
+            return versions.minByOrNull { it.first }?.second ?: load(memorySpaceId)
         }
         return hit.second
     }
