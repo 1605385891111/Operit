@@ -1532,6 +1532,7 @@ class MessageCoordinationDelegate(
                         roleCardId = null
                     )
                 val profileId =
+                    resolveChatMemorySpaceBinding(currentChatId)
                     roleCardId?.let { resolveRoleCardMemoryProfileOverride(it) }
                         ?: preferencesManager.activeMemorySpaceIdFlow.first()
                 MemoryAutoSaveCandidateRepository(context, profileId)
@@ -1590,6 +1591,7 @@ class MessageCoordinationDelegate(
                     roleCardId = null
                 )
             val memorySpaceIdOverride =
+                resolveChatMemorySpaceBinding(currentChatId)
                 roleCardId?.let { resolveRoleCardMemoryProfileOverride(it) }
 
             enhancedAiService.saveConversationToMemoryAsync(
