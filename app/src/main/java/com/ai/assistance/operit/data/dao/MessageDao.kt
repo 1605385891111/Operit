@@ -102,6 +102,10 @@ interface MessageDao {
         afterTimestampExclusive: Long,
     ): Boolean
 
+/** 删除分支里 orderIndex 超过分支点的总结消息（这些是分支点之后才生成的总结，会把“未来”带进分支） */
+    @Query("DELETE FROM messages WHERE chatId = :chatId AND sender = 'summary' AND orderIndex > :orderIndex")
+    suspend fun deleteSummaryMessagesAfterOrderIndex(chatId: String, orderIndex: Int)
+
     @Query(
         "SELECT timestamp FROM messages WHERE chatId = :chatId AND sender = 'summary' ORDER BY timestamp DESC LIMIT 1"
     )
