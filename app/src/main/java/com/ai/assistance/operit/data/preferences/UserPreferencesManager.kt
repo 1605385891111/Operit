@@ -470,6 +470,19 @@ class UserPreferencesManager private constructor(private val context: Context) {
         }
     }
 
+/** 查询所有绑定了该记忆空间的对话 id（判断分支记忆库是否还有人在用） */
+suspend fun getChatIdsBoundToMemorySpace(memorySpaceId: String): List<String> {
+    if (memorySpaceId.isBlank()) return emptyList()
+    val prefix = CHAT_MEMORY_SPACE_PREFIX
+    return context.userPreferencesDataStore.data.first()
+        .asMap()
+        .mapNotNull { (key, value) ->
+            val name = key.name
+            if (!name.startsWith(prefix)) return@mapNotNull null
+            if (value == memorySpaceId) name.removePrefix(prefix) else null
+        }
+}
+
 /** 解除对话级记忆空间绑定，恢复为全局记忆空间 */
     suspend fun clearChatMemorySpaceId(chatId: String) {
         if (chatId.isBlank()) return
