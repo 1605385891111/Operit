@@ -281,6 +281,7 @@ class MessageCoordinationDelegate(
         val effectiveMemorySpaceIdOverride =
             memorySpaceIdOverride
                 ?: currentMemorySpaceIdOverride
+                ?: resolveChatMemorySpaceBinding(targetChatId)
                 ?: effectiveRoleCardId?.let { resolveRoleCardMemoryProfileOverride(it) }
 
         val newWindowSize =
@@ -1451,6 +1452,19 @@ class MessageCoordinationDelegate(
         }
     }
 
+/** 分支对话在创建时可能绑定了独立记忆空间，优先于角色卡绑定与全局记忆空间 */
+    private fun resolveChatMemorySpaceBinding(chatId: String?): String? {
+        if (chatId.isNullOrBlank()) return null
+        return runCatching {
+                runBlocking {
+                    com.ai.assistance.operit.data.preferences.UserPreferencesManager
+                        .getInstance(context)
+                        .getChatMemorySpaceId(chatId)
+                }
+            }
+            .getOrNull()
+    }
+
     private fun resolveRoleCardMemoryProfileOverride(roleCardId: String): String? {
         val roleCard = runBlocking { characterCardManager.getCharacterCardFlow(roleCardId).first() }
         val bindingMode =
@@ -1927,6 +1941,7 @@ class MessageCoordinationDelegate(
         val effectiveMemorySpaceIdOverride =
             memorySpaceIdOverride
                 ?: currentMemorySpaceIdOverride
+            ?: resolveChatMemorySpaceBinding(currentChatId)
                 ?: roleCardIdOverride?.let { resolveRoleCardMemoryProfileOverride(it) }
         val effectiveIsGroupChat = isGroupChat || isGroupChatSession(currentChatId)
 
