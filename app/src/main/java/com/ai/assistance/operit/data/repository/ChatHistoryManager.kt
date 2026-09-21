@@ -74,6 +74,7 @@ private val Context.currentChatIdDataStore by preferencesDataStore(name = "curre
 class ChatHistoryManager private constructor(private val context: Context) {
     companion object {
         private const val TAG = "ChatHistoryManager"
+        private const val CHAT_SEED_SPACE_ID = "chat_seed_profile"
         private const val LOCATOR_PREVIEW_CHAR_COUNT = 48
 
         @Volatile
@@ -1472,7 +1473,70 @@ class ChatHistoryManager private constructor(private val context: Context) {
             setCurrentChatId(newHistory.id)
         }
 
+        // 新对话独立记忆：分配独立记忆空间（种子=初始用户资料+空图谱）
+        provisionChatMemorySpace(newHistory.id, newHistory.title, characterCardName)
         return newHistory
+    }
+
+
+    /** 新对话独立记忆：为对话创建并绑定独立记忆空间（种子=初始用户资料+空图谱） */
+    private suspend fun provisionChatMemorySpace(
+        chatId: String,
+        chatTitle: String?,
+        characterCardName: String?
+    ) {
+        // 角色卡设置了“固定记忆空间”时优先，跳过自动独立分配
+        if (resolveRoleCardFixedSpaceId(characterCardName) != null) {
+            AppLogger.d(TAG, "角色卡已固定记忆空间，跳过新对话独立分配: $chatId")
+            return
+        }
+        val userPreferencesManager =
+            com.ai.assistance.operit.data.preferences.UserPreferencesManager.getInstance(context)
+        val documentRepository =
+            com.ai.assistance.operit.data.preferences.MemorySpaceProfileDocumentRepository.getInstance(context)
+        var createdSpaceId: String? = null
+        try {
+            val spaceName =
+                (chatTitle?.takeIf { it.isNotBlank() } ?: "新对话") +
+                    " ·独立 " +
+                    SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date())
+            val spaceId = userPreferencesManager.createMemorySpace(spaceName)
+            createdSpaceId = spaceId
+            val seed = loadChatSeedProfile()
+            if (seed.isNotBlank()) {
+                documentRepository.save(spaceId, seed)
+            }
+            userPreferencesManager.setChatMemorySpaceId(chatId, spaceId)
+            createdSpaceId = null // 绑定成功，失败时不再回收
+            AppLogger.d(TAG, "新对话已分配独立记忆空间: $spaceId")
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "新对话独立记忆空间创建失败，将沿用原有解析链", e)
+            val orphanSpaceId = createdSpaceId
+            if (orphanSpaceId != null) {
+                try {
+                    if (userPreferencesManager.getChatMemorySpaceId(chatId) != orphanSpaceId) {
+                        userPreferencesManager.deleteMemorySpace(orphanSpaceId)
+                        AppLogger.w(TAG, "已回收创建中断的孤儿记忆空间: $orphanSpaceId")
+                    }
+                } catch (cleanupError: Exception) {
+                    AppLogger.e(TAG, "孤儿记忆空间回收失败: $orphanSpaceId", cleanupError)
+                }
+            }
+        }
+    }
+
+    /** 读取“初始用户资料”种子；首次使用时从默认空间冻结一份，之后不再变化 */
+    private suspend fun loadChatSeedProfile(): String {
+        val documentRepository =
+            com.ai.assistance.operit.data.preferences.MemorySpaceProfileDocumentRepository.getInstance(context)
+        val existing = documentRepository.load(CHAT_SEED_SPACE_ID)
+        if (existing.isNotBlank()) return existing
+        val fromDefault =
+            runCatching { documentRepository.load("default") }.getOrDefault("")
+        if (fromDefault.isNotBlank()) {
+            documentRepository.save(CHAT_SEED_SPACE_ID, fromDefault)
+        }
+        return fromDefault
     }
 
     /** 更新聊天工作区 */
