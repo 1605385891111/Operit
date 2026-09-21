@@ -1673,6 +1673,28 @@ class ChatHistoryManager private constructor(private val context: Context) {
         }
     }
 
+/** 为分支对话创建独立的记忆库：快照父对话当前记忆空间资料（user.md），并绑定到分支 */
+    private suspend fun forkMemorySpaceForBranch(parentChatTitle: String, branchChatId: String) {
+        try {
+            val userPreferencesManager =
+                com.ai.assistance.operit.data.preferences.UserPreferencesManager.getInstance(context)
+            val documentRepository =
+                com.ai.assistance.operit.data.preferences.MemorySpaceProfileDocumentRepository.getInstance(context)
+            val parentSpaceId = userPreferencesManager.activeMemorySpaceIdFlow.first()
+            val snapshot = documentRepository.load(parentSpaceId)
+            val branchSpaceName =
+                parentChatTitle +
+                    " ·分支 " +
+                    SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date())
+            val branchSpaceId = userPreferencesManager.createMemorySpace(branchSpaceName)
+            documentRepository.save(branchSpaceId, snapshot)
+            userPreferencesManager.setChatMemorySpaceId(branchChatId, branchSpaceId)
+            AppLogger.d(TAG, "分支记忆库已创建: $branchSpaceId (来源: $parentSpaceId)")
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "分支记忆库创建失败，分支将沿用原记忆空间", e)
+        }
+    }
+
     /**
      * 创建对话分支
      * @param parentChatId 父对话ID
@@ -1681,7 +1703,8 @@ class ChatHistoryManager private constructor(private val context: Context) {
      */
     suspend fun createBranch(
         parentChatId: String,
-        upToMessageTimestamp: Long? = null
+        upToMessageTimestamp: Long? = null,
+        isolateMemory: Boolean = true
     ): ChatHistory {
         return globalMutex.withLock {
             try {
@@ -1720,6 +1743,20 @@ class ChatHistoryManager private constructor(private val context: Context) {
                         targetChatId = branchEntity.id,
                         upToTimestampInclusive = upToMessageTimestamp,
                     )
+                }
+
+                // 防止“总结之后，往总结之前的消息建分支”时把覆盖未来的总结带进分支：
+                // 总结消息的 timestamp 被锚定在历史中间，但 orderIndex 是最后追加的。
+                if (upToMessageTimestamp != null) {
+                    val anchorMessage = chatContentDao.getMessageByTimestamp(parentChatId, upToMessageTimestamp)
+                    if (anchorMessage != null) {
+                        messageDao.deleteSummaryMessagesAfterOrderIndex(branchEntity.id, anchorMessage.orderIndex)
+                    }
+                }
+
+                // 分支记忆隔离：为分支快照一份独立记忆库（含用户资料 user.md）
+                if (isolateMemory) {
+                    forkMemorySpaceForBranch(parentChat.title, branchEntity.id)
                 }
 
                 val branchHistory = branchEntity.toChatHistory(emptyList())
