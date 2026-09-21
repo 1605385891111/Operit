@@ -76,6 +76,7 @@ class UserPreferencesManager private constructor(private val context: Context) {
 
         // Memory spaces replace preference profiles while retaining their stable identifiers.
         private val ACTIVE_MEMORY_SPACE_ID = stringPreferencesKey("active_memory_space_id")
+        private const val CHAT_MEMORY_SPACE_PREFIX = "chat_memory_space_"
         private val MEMORY_SPACE_LIST = stringPreferencesKey("memory_space_list")
 
         // 应用语言设置
@@ -451,6 +452,30 @@ class UserPreferencesManager private constructor(private val context: Context) {
         }
         MemorySpaceProfileDocumentRepository.getInstance(context).load(id)
         return id
+    }
+
+/** 获取某条对话单独绑定的记忆空间（创建分支时自动分配），未绑定返回 null */
+    suspend fun getChatMemorySpaceId(chatId: String): String? {
+        if (chatId.isBlank()) return null
+        return context.userPreferencesDataStore.data.first()
+            .get(stringPreferencesKey("$CHAT_MEMORY_SPACE_PREFIX$chatId"))
+            ?.takeIf { it.isNotBlank() }
+    }
+
+/** 给某条对话绑定独立的记忆空间（分支记忆隔离用） */
+    suspend fun setChatMemorySpaceId(chatId: String, memorySpaceId: String) {
+        if (chatId.isBlank() || memorySpaceId.isBlank()) return
+        context.userPreferencesDataStore.edit { preferences ->
+            preferences[stringPreferencesKey("$CHAT_MEMORY_SPACE_PREFIX$chatId")] = memorySpaceId
+        }
+    }
+
+/** 解除对话级记忆空间绑定，恢复为全局记忆空间 */
+    suspend fun clearChatMemorySpaceId(chatId: String) {
+        if (chatId.isBlank()) return
+        context.userPreferencesDataStore.edit { preferences ->
+            preferences.remove(stringPreferencesKey("$CHAT_MEMORY_SPACE_PREFIX$chatId"))
+        }
     }
 
     suspend fun setActiveMemorySpace(memorySpaceId: String) {
