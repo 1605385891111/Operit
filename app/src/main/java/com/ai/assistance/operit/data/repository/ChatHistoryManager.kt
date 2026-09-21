@@ -1674,14 +1674,18 @@ class ChatHistoryManager private constructor(private val context: Context) {
     }
 
 /** 为分支对话创建独立的记忆库：快照父对话当前记忆空间资料（user.md），并绑定到分支 */
-    private suspend fun forkMemorySpaceForBranch(parentChatTitle: String, branchChatId: String) {
+    private suspend fun forkMemorySpaceForBranch(
+        parentChatTitle: String,
+        branchChatId: String,
+        branchPointTimestamp: Long
+    ) {
         try {
             val userPreferencesManager =
                 com.ai.assistance.operit.data.preferences.UserPreferencesManager.getInstance(context)
             val documentRepository =
                 com.ai.assistance.operit.data.preferences.MemorySpaceProfileDocumentRepository.getInstance(context)
             val parentSpaceId = userPreferencesManager.activeMemorySpaceIdFlow.first()
-            val snapshot = documentRepository.load(parentSpaceId)
+            val snapshot = documentRepository.loadAsOf(parentSpaceId, branchPointTimestamp)
             val branchSpaceName =
                 parentChatTitle +
                     " ·分支 " +
@@ -1756,7 +1760,7 @@ class ChatHistoryManager private constructor(private val context: Context) {
 
                 // 分支记忆隔离：为分支快照一份独立记忆库（含用户资料 user.md）
                 if (isolateMemory) {
-                    forkMemorySpaceForBranch(parentChat.title, branchEntity.id)
+                    forkMemorySpaceForBranch(parentChat.title, branchEntity.id, upToMessageTimestamp ?: System.currentTimeMillis())
                 }
 
                 val branchHistory = branchEntity.toChatHistory(emptyList())
