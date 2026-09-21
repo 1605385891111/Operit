@@ -1711,6 +1711,16 @@ private suspend fun cleanupBranchMemorySpace(chatId: String) {
                     SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date())
             val branchSpaceId = userPreferencesManager.createMemorySpace(branchSpaceName)
             documentRepository.save(branchSpaceId, snapshot)
+
+            // 记忆图谱（结构化记忆 / 检索索引）按分支点整体快照：晚于分支点的记忆会被裁掉
+            val memoryGraphCopied =
+                com.ai.assistance.operit.data.db.ObjectBoxManager.forkMemoryStore(
+                    context,
+                    parentSpaceId,
+                    branchSpaceId,
+                    branchPointTimestamp
+                )
+            AppLogger.d(TAG, "分支记忆图谱复制: $memoryGraphCopied, space=$branchSpaceId")
             userPreferencesManager.setChatMemorySpaceId(branchChatId, branchSpaceId)
             AppLogger.d(TAG, "分支记忆库已创建: $branchSpaceId (来源: $parentSpaceId)")
         } catch (e: Exception) {
