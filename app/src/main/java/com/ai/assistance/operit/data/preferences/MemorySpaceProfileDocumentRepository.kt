@@ -19,6 +19,8 @@ class MemorySpaceProfileDocumentRepository private constructor(private val conte
     companion object {
         const val MAX_CONTENT_CHARS = 12_000
         const val USER_FILE_NAME = "user.md"
+        private const val USER_VERSIONS_FILE_NAME = "user.versions.jsonl"
+        private const val MAX_VERSIONS = 120
 
         private const val STORAGE_DIRECTORY = "memory-space-profiles"
         private const val PUBLISHED_GLOBAL_USER_FILE_NAME = "user.md"
@@ -88,6 +90,7 @@ class MemorySpaceProfileDocumentRepository private constructor(private val conte
         initialize()
         writeMutex.withLock {
             writeAtomically(documentFile(memorySpaceId), markdown)
+            appendVersionLocked(memorySpaceId, markdown)
         }
     }
 
@@ -107,8 +110,75 @@ class MemorySpaceProfileDocumentRepository private constructor(private val conte
         initialize()
         writeMutex.withLock {
             documentFile(memorySpaceId).delete()
-            profileDirectory(memorySpaceId).delete()
+            profileDirectory(memorySpaceId).deleteRecursively()
         }
+    }
+
+/**
+     * 加载"截至某一时刻"的记忆文档快照。
+     *
+     * 版本日志保存了每次写入的历史版本，这里取时间戳不晚于 [timestampMillis] 的最后一个版本；
+     * 若时间点早于日志起点，则取最早的一版（比"当前"更接近当时）；没有任何版本记录时回退到当前文档。
+     */
+    suspend fun loadAsOf(memorySpaceId: String, timestampMillis: Long): String {
+        initialize()
+        val versions = readVersions(memorySpaceId)
+        if (versions.isEmpty()) return load(memorySpaceId)
+        val hit = versions.lastOrNull { it.first <= timestampMillis } ?: versions.first()
+        return hit.second
+    }
+
+/** 版本日志的文件位置（与 user.md 同目录） */
+    private fun versionFile(memorySpaceId: String): File {
+        return File(profileDirectory(memorySpaceId), USER_VERSIONS_FILE_NAME)
+    }
+
+/** 读取版本日志；损坏的行直接跳过，不影响其它版本 */
+    private suspend fun readVersions(memorySpaceId: String): List<Pair<Long, String>> {
+        return writeMutex.withLock {
+            val file = versionFile(memorySpaceId)
+            if (!file.exists()) return@withLock emptyList()
+            runCatching {
+                    file.readLines(StandardCharsets.UTF_8).mapNotNull { line ->
+                        if (line.isBlank()) return@mapNotNull null
+                        runCatching {
+                                val record = org.json.JSONObject(line)
+                                record.getLong("t") to record.getString("md")
+                            }
+                            .getOrNull()
+                    }
+                }
+                .getOrElse {
+                    AppLogger.e(TAG, "读取记忆版本日志失败: $memorySpaceId", it)
+                    emptyList()
+                }
+        }
+    }
+
+/** 追加一次记忆写入到版本日志（与上一版相同则跳过；超出上限时只保留最近 MAX_VERSIONS 版） */
+    private fun appendVersionLocked(memorySpaceId: String, markdown: String) {
+        runCatching {
+                val file = versionFile(memorySpaceId)
+                val existing =
+                    if (file.exists()) {
+                        file.readLines(StandardCharsets.UTF_8).filter { it.isNotBlank() }
+                    } else {
+                        emptyList()
+                    }
+                val lastMarkdown =
+                    existing.lastOrNull()?.let { line ->
+                        runCatching { org.json.JSONObject(line).getString("md") }.getOrNull()
+                    }
+                if (lastMarkdown == markdown) return
+                val record =
+                    org.json.JSONObject()
+                        .put("t", System.currentTimeMillis())
+                        .put("md", markdown)
+                        .toString()
+                val kept = (existing + record).takeLast(MAX_VERSIONS)
+                writeAtomically(file, kept.joinToString("\n", postfix = "\n"))
+            }
+            .onFailure { AppLogger.e(TAG, "写入记忆版本日志失败: $memorySpaceId", it) }
     }
 
     private suspend fun migrateReleasedData() {
