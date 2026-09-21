@@ -1408,6 +1408,7 @@ class ChatHistoryManager private constructor(private val context: Context) {
                 }
                 // 删除聊天实体（级联删除所有消息）
                 chatDao.deleteChat(chatId)
+                cleanupBranchMemorySpace(chatId)
 
                 // 如果删除的是当前聊天，清除当前聊天ID
                 val currentChatId = currentChatIdFlow.first()
@@ -1672,6 +1673,24 @@ class ChatHistoryManager private constructor(private val context: Context) {
             }
         }
     }
+
+/** 对话被删除后回收它专属的分支记忆库（无人使用且非当前全局记忆空间时才删） */
+private suspend fun cleanupBranchMemorySpace(chatId: String) {
+    try {
+        val userPreferencesManager =
+            com.ai.assistance.operit.data.preferences.UserPreferencesManager.getInstance(context)
+        val boundSpaceId = userPreferencesManager.getChatMemorySpaceId(chatId) ?: return
+        userPreferencesManager.clearChatMemorySpaceId(chatId)
+        if (userPreferencesManager.activeMemorySpaceIdFlow.first() == boundSpaceId) return
+        val stillUsed =
+            userPreferencesManager.getChatIdsBoundToMemorySpace(boundSpaceId).any { it != chatId }
+        if (stillUsed) return
+        userPreferencesManager.deleteMemorySpace(boundSpaceId)
+        AppLogger.d(TAG, "已回收分支专属记忆库: $boundSpaceId")
+    } catch (e: Exception) {
+        AppLogger.e(TAG, "回收分支专属记忆库失败", e)
+    }
+}
 
 /** 为分支对话创建独立的记忆库：快照父对话当前记忆空间资料（user.md），并绑定到分支 */
     private suspend fun forkMemorySpaceForBranch(
@@ -2536,12 +2555,25 @@ class ChatHistoryManager private constructor(private val context: Context) {
                 val currentChatId = currentChatIdFlow.first()
                 val currentChat = currentChatId?.let { chatDao.getChatById(it) }
 
+                val branchCandidates =
+                    chatDao.getAllChatsDirectly().filter { chat ->
+                        !chat.locked &&
+                            (
+                                if (sourceCharacterCardName == null) {
+                                    chat.characterCardName == null && chat.characterGroupId == null
+                                } else {
+                                    chat.characterCardName == sourceCharacterCardName
+                                }
+                            )
+                    }
+
                 val deletedCount = if (sourceCharacterCardName == null) {
                     chatDao.deleteUnlockedUnboundChats()
                 } else {
                     chatDao.deleteUnlockedChatsByCharacterCardName(sourceCharacterCardName)
                 }
 
+                branchCandidates.forEach { cleanupBranchMemorySpace(it.id) }
                 val currentChatShouldBeCleared =
                     currentChat != null &&
                         !currentChat.locked &&
