@@ -124,7 +124,11 @@ class MemorySpaceProfileDocumentRepository private constructor(private val conte
         initialize()
         val versions = readVersions(memorySpaceId)
         if (versions.isEmpty()) return load(memorySpaceId)
-        val hit = versions.lastOrNull { it.first <= timestampMillis } ?: versions.first()
+        val hit = versions.lastOrNull { it.first <= timestampMillis }
+        if (hit == null) {
+            AppLogger.w(TAG, "分支点早于记忆版本日志起点，回退为最早版本（近似快照）: $memorySpaceId")
+            return versions.first().second
+        }
         return hit.second
     }
 
