@@ -525,6 +525,7 @@ class ConversationService(
             if (!effectiveChatHistory.any { it.kind == PromptTurnKind.SYSTEM }) {
                 val effectiveMemorySpaceId =
                     memorySpaceIdOverride?.takeIf { it.isNotBlank() }
+                        ?: userPreferencesManager.getChatMemorySpaceId(chatId.orEmpty())
                         ?: userPreferencesManager.activeMemorySpaceIdFlow.first()
                 val userProfileMarkdown =
                     memorySpaceProfileDocumentRepository.load(effectiveMemorySpaceId).trim()
