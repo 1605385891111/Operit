@@ -1685,6 +1685,18 @@ private suspend fun cleanupBranchMemorySpace(chatId: String) {
         val stillUsed =
             userPreferencesManager.getChatIdsBoundToMemorySpace(boundSpaceId).any { it != chatId }
         if (stillUsed) return
+        // 角色卡可能固定绑定了这个空间：此时不能删，否则会把角色卡的记忆配置一并清掉
+        val referencedByRoleCard =
+            runCatching {
+                com.ai.assistance.operit.data.preferences.CharacterCardManager
+                    .getInstance(context)
+                    .getAllCharacterCards()
+                    .any { it.memoryProfileId == boundSpaceId }
+            }.getOrElse {
+                AppLogger.e(TAG, "检查角色卡记忆空间引用失败，放弃回收: $boundSpaceId", it)
+                true // 检查失败时保守处理：不回收
+            }
+        if (referencedByRoleCard) return
         userPreferencesManager.deleteMemorySpace(boundSpaceId)
         AppLogger.d(TAG, "已回收分支专属记忆库: $boundSpaceId")
     } catch (e: Exception) {
@@ -1692,39 +1704,84 @@ private suspend fun cleanupBranchMemorySpace(chatId: String) {
     }
 }
 
+    /** 父对话实际使用的记忆空间：对话级绑定 → 角色卡固定绑定 → 全局当前 */
+    private suspend fun resolveParentMemorySpaceId(parentChat: ChatEntity): String {
+        val userPreferencesManager =
+            com.ai.assistance.operit.data.preferences.UserPreferencesManager.getInstance(context)
+        return userPreferencesManager.getChatMemorySpaceId(parentChat.id)
+            ?: resolveRoleCardFixedSpaceId(parentChat.characterCardName)
+            ?: userPreferencesManager.activeMemorySpaceIdFlow.first()
+    }
+
+    /** 角色卡若把记忆空间设为“固定绑定”，则以角色卡为准（与发送链路一致） */
+    private suspend fun resolveRoleCardFixedSpaceId(characterCardName: String?): String? {
+        if (characterCardName.isNullOrBlank()) return null
+        val card =
+            com.ai.assistance.operit.data.preferences.CharacterCardManager
+                .getInstance(context)
+                .findCharacterCardByName(characterCardName)
+                ?: return null
+        val mode =
+            com.ai.assistance.operit.data.model.CharacterCardMemoryProfileBindingMode.normalize(
+                card.memoryProfileBindingMode
+            )
+        return if (
+            mode == com.ai.assistance.operit.data.model.CharacterCardMemoryProfileBindingMode.FIXED_PROFILE &&
+                !card.memoryProfileId.isNullOrBlank()
+        ) {
+            card.memoryProfileId
+        } else {
+            null
+        }
+    }
+
 /** 为分支对话创建独立的记忆库：快照父对话当前记忆空间资料（user.md），并绑定到分支 */
     private suspend fun forkMemorySpaceForBranch(
+        sourceSpaceId: String,
         parentChatTitle: String,
         branchChatId: String,
         branchPointTimestamp: Long
     ) {
+        val userPreferencesManager =
+            com.ai.assistance.operit.data.preferences.UserPreferencesManager.getInstance(context)
+        val documentRepository =
+            com.ai.assistance.operit.data.preferences.MemorySpaceProfileDocumentRepository.getInstance(context)
+        var createdSpaceId: String? = null
         try {
-            val userPreferencesManager =
-                com.ai.assistance.operit.data.preferences.UserPreferencesManager.getInstance(context)
-            val documentRepository =
-                com.ai.assistance.operit.data.preferences.MemorySpaceProfileDocumentRepository.getInstance(context)
-            val parentSpaceId = userPreferencesManager.activeMemorySpaceIdFlow.first()
-            val snapshot = documentRepository.loadAsOf(parentSpaceId, branchPointTimestamp)
+            val snapshot = documentRepository.loadAsOf(sourceSpaceId, branchPointTimestamp)
             val branchSpaceName =
                 parentChatTitle +
                     " ·分支 " +
                     SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date())
             val branchSpaceId = userPreferencesManager.createMemorySpace(branchSpaceName)
+            createdSpaceId = branchSpaceId
             documentRepository.save(branchSpaceId, snapshot)
 
             // 记忆图谱（结构化记忆 / 检索索引）按分支点整体快照：晚于分支点的记忆会被裁掉
             val memoryGraphCopied =
                 com.ai.assistance.operit.data.db.ObjectBoxManager.forkMemoryStore(
                     context,
-                    parentSpaceId,
+                    sourceSpaceId,
                     branchSpaceId,
                     branchPointTimestamp
                 )
             AppLogger.d(TAG, "分支记忆图谱复制: $memoryGraphCopied, space=$branchSpaceId")
             userPreferencesManager.setChatMemorySpaceId(branchChatId, branchSpaceId)
-            AppLogger.d(TAG, "分支记忆库已创建: $branchSpaceId (来源: $parentSpaceId)")
+            createdSpaceId = null // 绑定成功，失败时不再回收
+            AppLogger.d(TAG, "分支记忆库已创建: $branchSpaceId (来源: $sourceSpaceId)")
         } catch (e: Exception) {
             AppLogger.e(TAG, "分支记忆库创建失败，分支将沿用原记忆空间", e)
+            val orphanSpaceId = createdSpaceId
+            if (orphanSpaceId != null) {
+                try {
+                    if (userPreferencesManager.getChatMemorySpaceId(branchChatId) != orphanSpaceId) {
+                        userPreferencesManager.deleteMemorySpace(orphanSpaceId)
+                        AppLogger.w(TAG, "已回收创建中断的孤儿分支记忆库: $orphanSpaceId")
+                    }
+                } catch (cleanupError: Exception) {
+                    AppLogger.e(TAG, "孤儿分支记忆库回收失败: $orphanSpaceId", cleanupError)
+                }
+            }
         }
     }
 
@@ -1789,7 +1846,13 @@ private suspend fun cleanupBranchMemorySpace(chatId: String) {
 
                 // 分支记忆隔离：为分支快照一份独立记忆库（含用户资料 user.md）
                 if (isolateMemory) {
-                    forkMemorySpaceForBranch(parentChat.title, branchEntity.id, upToMessageTimestamp ?: System.currentTimeMillis())
+                    val parentSpaceId = resolveParentMemorySpaceId(parentChat)
+                    forkMemorySpaceForBranch(
+                        parentSpaceId,
+                        parentChat.title,
+                        branchEntity.id,
+                        upToMessageTimestamp ?: System.currentTimeMillis()
+                    )
                 }
 
                 val branchHistory = branchEntity.toChatHistory(emptyList())
