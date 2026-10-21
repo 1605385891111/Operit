@@ -69,6 +69,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Switch
+import androidx.compose.material3.RadioButton
 import com.ai.assistance.operit.ui.features.chat.viewmodel.ChatHistoryDisplayMode
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
@@ -124,6 +125,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.graphics.Brush
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.fillMaxSize
@@ -453,6 +455,10 @@ fun ChatHistorySelector(
     var chatToEdit by remember { mutableStateOf<ChatHistory?>(null) }
     var chatToDelete by remember { mutableStateOf<ChatHistory?>(null) }
     var chatItemActionTarget by remember { mutableStateOf<ChatHistory?>(null) }
+    var memoryBindingTarget by remember { mutableStateOf<ChatHistory?>(null) }
+    var memoryBindingSpaceIds by remember { mutableStateOf<List<String>>(emptyList()) }
+    var memoryBindingSpaceNames by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var memoryBindingCurrentSpaceId by remember { mutableStateOf<String?>(null) }
     var showNewGroupDialog by remember { mutableStateOf(false) }
     var newGroupName by remember { mutableStateOf("") }
     var collapsedGroups by rememberLocal("chat_history_collapsed_groups", emptySet<String>())
@@ -1118,6 +1124,61 @@ fun ChatHistorySelector(
                         }
                     }
                     
+                    // 记忆库绑定选项
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                            .clip(MaterialTheme.shapes.medium)
+                            .semantics {
+                                contentDescription = context.getString(R.string.chat_memory_binding)
+                            }
+                            .clickable {
+                                val targetChat = resolvedTargetChat ?: chatItemActionTarget!!
+                                coroutineScope.launch {
+                                    runCatching {
+                                        val preferencesManager =
+                                            UserPreferencesManager.getInstance(context)
+                                        val spaceIds = preferencesManager.memorySpaceListFlow.first()
+                                        memoryBindingSpaceIds = spaceIds
+                                        memoryBindingSpaceNames = spaceIds.associateWith { spaceId ->
+                                            runCatching {
+                                                preferencesManager.getMemorySpaceFlow(spaceId).first().name
+                                            }.getOrDefault(spaceId)
+                                        }
+                                        memoryBindingCurrentSpaceId =
+                                            preferencesManager.getChatMemorySpaceId(targetChat.id)
+                                        memoryBindingTarget = targetChat
+                                    }
+                                }
+                                chatItemActionTarget = null
+                            },
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Folder,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .clearAndSetSemantics { }
+                            )
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Text(
+                                text = stringResource(R.string.chat_memory_binding),
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.clearAndSetSemantics { }
+                            )
+                        }
+                    }
+
                     // 删除选项
                     Surface(
                         modifier = Modifier
@@ -1170,6 +1231,81 @@ fun ChatHistorySelector(
         }
     }
 
+    memoryBindingTarget?.let { targetChat ->
+        val preferencesManager = remember { UserPreferencesManager.getInstance(context) }
+        AlertDialog(
+            onDismissRequest = { memoryBindingTarget = null },
+            title = { Text(stringResource(R.string.chat_memory_binding_title)) },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 420.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                coroutineScope.launch {
+                                    runCatching {
+                                        preferencesManager.clearChatMemorySpaceId(targetChat.id)
+                                    }
+                                    memoryBindingCurrentSpaceId = null
+                                    memoryBindingTarget = null
+                                }
+                            }
+                            .padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = memoryBindingCurrentSpaceId == null,
+                            onClick = {}
+                        )
+                        Text(
+                            text = stringResource(R.string.chat_memory_binding_follow_global),
+                            modifier = Modifier.padding(start = 8.dp)
+                        )
+                    }
+                    memoryBindingSpaceIds.forEach { spaceId ->
+                        val spaceName = memoryBindingSpaceNames[spaceId] ?: spaceId
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    coroutineScope.launch {
+                                        runCatching {
+                                            preferencesManager.setChatMemorySpaceId(targetChat.id, spaceId)
+                                            if (targetChat.id == currentId) {
+                                                preferencesManager.setActiveMemorySpace(spaceId)
+                                            }
+                                        }
+                                        memoryBindingCurrentSpaceId = spaceId
+                                        memoryBindingTarget = null
+                                    }
+                                }
+                                .padding(vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = memoryBindingCurrentSpaceId == spaceId,
+                                onClick = {}
+                            )
+                            Text(
+                                text = spaceName,
+                                modifier = Modifier.padding(start = 8.dp)
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { memoryBindingTarget = null }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
     if (groupActionTarget != null) {
         Dialog(onDismissRequest = { groupActionTarget = null }) {
             Card(
