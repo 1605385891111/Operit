@@ -1149,6 +1149,21 @@ class ChatViewModel(private val context: Context) : ViewModel() {
         }
     }
 
+    fun continueAiMessage(index: Int) {
+        viewModelScope.launch {
+            try {
+                messageCoordinationDelegate.continueAiMessage(index)
+            } catch (e: CancellationException) {
+                AppLogger.d(TAG, "继续生成已取消")
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "继续生成失败", e)
+                uiStateDelegate.showErrorMessage(
+                    context.getString(R.string.chat_continue_speaking_failed, e.message ?: ""),
+                )
+            }
+        }
+    }
+
     fun switchMessageVariant(index: Int, targetVariantIndex: Int) {
         viewModelScope.launch {
             try {
