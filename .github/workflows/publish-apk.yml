@@ -1,0 +1,57 @@
+name: Publish APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Actions run id that contains the APK artifact'
+        required: true
+        default: '39629276998'
+      artifact_name:
+        description: 'Artifact name'
+        required: true
+        default: 'operit-android-26'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    name: Publish APK to Release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Download artifact
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          rm -rf out
+          mkdir -p out
+          gh run download "${{ inputs.run_id }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "${{ inputs.artifact_name }}" \
+            --dir out
+          echo '--- files ---'
+          find out -type f -printf '%s %p\n' | sort -nr | head -20
+
+      - name: Create release and upload APKs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="apk-run-${{ inputs.run_id }}"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists"
+          else
+            gh release create "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "APK build $TAG" \
+              --notes "Android APK built by workflow run ${{ inputs.run_id }}" \
+              --latest
+          fi
+          find out -type f -name '*.apk' -print0 | while IFS= read -r -d '' apk; do
+            echo "Uploading $apk ($(stat -c%s "$apk") bytes)"
+            gh release upload "$TAG" "$apk" --repo "$GITHUB_REPOSITORY" --clobber
+          done
