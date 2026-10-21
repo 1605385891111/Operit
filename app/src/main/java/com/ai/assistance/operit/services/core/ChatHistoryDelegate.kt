@@ -22,6 +22,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import com.ai.assistance.operit.data.preferences.CharacterCardManager
+import com.ai.assistance.operit.data.preferences.UserPreferencesManager
 import com.ai.assistance.operit.data.preferences.ActivePromptManager
 import com.ai.assistance.operit.data.model.ActivePrompt
 import com.ai.assistance.operit.data.model.ChatMessageTimestampAllocator
@@ -886,6 +887,16 @@ class ChatHistoryDelegate(
                     // 本地切换：只更新内存态（供悬浮窗使用），不写回 DataStore。
                     _currentChatId.value = chatId
                     loadChatMessages(chatId)
+                }
+                // 对话级记忆库绑定：切到这个对话时，自动切到它绑定的记忆库
+                runCatching {
+                    val preferencesManager = UserPreferencesManager.getInstance(context)
+                    val boundMemorySpaceId = preferencesManager.getChatMemorySpaceId(chatId)
+                    if (!boundMemorySpaceId.isNullOrBlank()) {
+                        preferencesManager.setActiveMemorySpace(boundMemorySpaceId)
+                    }
+                }.onFailure {
+                    AppLogger.w(TAG, "切换对话时同步绑定的记忆库失败: ${it.message}")
                 }
 
                 onScrollToBottom()
