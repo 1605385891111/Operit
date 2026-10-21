@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -177,6 +178,7 @@ fun ChatArea(
     onDeleteMessagesFrom: ((Int) -> Unit)? = null,
     onRollbackToMessage: ((Int) -> Unit)? = null, // 回滚到指定消息的回调
     onRegenerateMessage: ((Int) -> Unit)? = null,
+    onContinueMessage: ((Int) -> Unit)? = null, // 继续说：让 AI 接着上一条往下说
     onSwitchMessageVariant: ((Int, Int) -> Unit)? = null,
     onSpeakMessage: ((String) -> Unit)? = null, // 添加朗读回调参数
     onAutoReadMessage: ((String) -> Unit)? = null, // 添加自动朗读回调参数
@@ -414,6 +416,7 @@ fun ChatArea(
                             onDeleteMessagesFrom = onDeleteMessagesFrom,
                             onRollbackToMessage = onRollbackToMessage,
                             onRegenerateMessage = onRegenerateMessage,
+                            onContinueMessage = onContinueMessage,
                             onSwitchMessageVariant = onSwitchMessageVariant,
                             onSpeakMessage = onSpeakMessage,
                             onReplyToMessage = onReplyToMessage,
@@ -437,6 +440,7 @@ fun ChatArea(
                             onToggleSelection = { onToggleMessageSelection?.invoke(actualIndex) },
                             onToggleMultiSelectMode = onToggleMultiSelectMode,
                             messageIndex = actualIndex,
+                            isLastMessage = actualIndex == chatHistory.lastIndex,
                             bubbleUserImageStyle = bubbleUserImageStyle,
                             bubbleAiImageStyle = bubbleAiImageStyle,
                             bubbleUserRoundedCornersEnabled = bubbleUserRoundedCornersEnabled,
@@ -605,6 +609,8 @@ private fun MessageItem(
     isSelected: Boolean = false, // 是否被选中
     onToggleSelection: (() -> Unit)? = null, // 切换选中状态的回调
     onToggleMultiSelectMode: ((Int?) -> Unit)? = null, // 切换多选模式的回调，可传入要初始选中的消息索引
+    onContinueMessage: ((Int) -> Unit)? = null, // 继续说
+    isLastMessage: Boolean = false, // 是否是当前对话的最后一条消息
     messageIndex: Int, // 消息索引，用于进入多选时自动选中
     bubbleUserImageStyle: BubbleImageStyleConfig? = null,
     bubbleAiImageStyle: BubbleImageStyleConfig? = null,
@@ -871,6 +877,30 @@ private fun MessageItem(
                     },
                     modifier = Modifier.height(36.dp)
                 )
+                if (isLastMessage) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                stringResource(id = R.string.chat_continue_speaking),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontSize = 13.sp
+                            )
+                        },
+                        onClick = {
+                            onContinueMessage?.invoke(index)
+                            showContextMenu = false
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.PlayArrow,
+                                contentDescription = stringResource(id = R.string.chat_continue_speaking),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        },
+                        modifier = Modifier.height(36.dp)
+                    )
+                }
                 // 修改记忆选项
                 DropdownMenuItem(
                     text = {
