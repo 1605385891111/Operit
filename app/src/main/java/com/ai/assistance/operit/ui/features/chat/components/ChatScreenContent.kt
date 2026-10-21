@@ -245,6 +245,7 @@ fun ChatScreenContent(
                         onDeleteMessagesFrom = { index -> actualViewModel.deleteMessagesFrom(index) },
                         onRollbackToMessage = { index -> pendingRollbackIndex = index },
                         onRegenerateMessage = { index -> actualViewModel.regenerateSingleAiMessage(index) },
+                        onContinueMessage = { index -> actualViewModel.continueAiMessage(index) },
                         onSwitchMessageVariant = { index, targetVariantIndex ->
                             actualViewModel.switchMessageVariant(index, targetVariantIndex)
                         },
@@ -362,6 +363,7 @@ fun ChatScreenContent(
                         onDeleteMessagesFrom = { index -> actualViewModel.deleteMessagesFrom(index) },
                         onRollbackToMessage = { index -> pendingRollbackIndex = index },
                         onRegenerateMessage = { index -> actualViewModel.regenerateSingleAiMessage(index) },
+                        onContinueMessage = { index -> actualViewModel.continueAiMessage(index) },
                         onSwitchMessageVariant = { index, targetVariantIndex ->
                             actualViewModel.switchMessageVariant(index, targetVariantIndex)
                         },
