@@ -391,6 +391,44 @@ class MessageCoordinationDelegate(
         }
     }
 
+    /**
+     * 「继续说」：不产生用户消息，让 AI 顺着上一条 AI 回复继续往下说。
+     * 复用自动续聊通道（isContinuation + isAutoContinuation），与"总结后自动继续"完全一致。
+     */
+    fun continueAiMessage(index: Int) {
+        val chatId = chatHistoryDelegate.currentChatId.value
+        if (chatId.isNullOrBlank()) {
+            uiStateDelegate.showErrorMessage(context.getString(R.string.chat_no_active_conversation))
+            return
+        }
+        if (messageProcessingDelegate.isChatLoading(chatId)) {
+            uiStateDelegate.showErrorMessage(context.getString(R.string.chat_regenerate_busy))
+            return
+        }
+        val history = chatHistoryDelegate.chatHistory.value
+        val target = history.getOrNull(index)
+        if (target == null) {
+            uiStateDelegate.showErrorMessage(context.getString(R.string.chat_invalid_message_index))
+            return
+        }
+        if (target.sender != "ai") {
+            uiStateDelegate.showErrorMessage(context.getString(R.string.chat_only_ai_message_allowed))
+            return
+        }
+        if (index != history.lastIndex) {
+            uiStateDelegate.showErrorMessage(
+                context.getString(R.string.chat_continue_speaking_only_last)
+            )
+            return
+        }
+        sendMessageInternal(
+            promptFunctionType = currentPromptFunctionType,
+            isContinuation = true,
+            isAutoContinuation = true,
+            chatIdOverride = chatId
+        )
+    }
+
     suspend fun regenerateSingleAiMessage(index: Int) {
         val chatId =
             chatHistoryDelegate.currentChatId.value
