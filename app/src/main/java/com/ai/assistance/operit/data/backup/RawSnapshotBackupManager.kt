@@ -33,9 +33,9 @@ import kotlinx.serialization.json.Json
 object RawSnapshotBackupManager {
 
     private const val TAG = "RawSnapshotBackup"
-    private const val FORMAT_VERSION = 1
+    private const val FORMAT_VERSION = 2
 
-    private const val ZIP_PREFIX = "operit_raw_snapshot_"
+    private const val ZIP_PREFIX = "operit_backup_"
 
     private const val ENTRY_MANIFEST = "manifest.json"
     private const val ENTRY_PAYLOAD_PREFIX = "payload/"
@@ -45,8 +45,11 @@ object RawSnapshotBackupManager {
     private const val ENTRY_SHARED_PREFS = "payload/shared_prefs/"
     private const val ENTRY_DATASTORE = "payload/datastore/"
     private const val ENTRY_DATABASES = "payload/databases/"
+    private const val ENTRY_SHARED_STORAGE = "payload/shared_storage/"
 
     private val terminalTopLevelDirNames = setOf("usr", "tmp", "bin")
+    private val sharedStorageExcludedTopLevelDirNames =
+        setOf("backup", "cleanOnExit", "packageLogs", "logs")
 
     private val mutex = Mutex()
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -56,12 +59,17 @@ object RawSnapshotBackupManager {
         val formatVersion: Int,
         val packageName: String,
         val createdAt: Long,
+        val appVersionName: String = "",
+        val includeUserMedia: Boolean = false,
+        val includeSharedStorage: Boolean = false,
         val includes: List<String>,
         val includeTerminalData: Boolean = true
     )
 
     data class SnapshotOptions(
-        val includeTerminalData: Boolean = false
+        val includeTerminalData: Boolean = false,
+        val includeUserMedia: Boolean = true,
+        val includeSharedStorage: Boolean = true
     )
 
     enum class ExportProgress {
@@ -72,6 +80,7 @@ object RawSnapshotBackupManager {
         ZIPPING_SHARED_PREFS,
         ZIPPING_DATASTORE,
         ZIPPING_DATABASES,
+        ZIPPING_SHARED_STORAGE,
         FINALIZING
     }
 
@@ -90,6 +99,7 @@ object RawSnapshotBackupManager {
         REPLACING_SHARED_PREFS,
         REPLACING_DATASTORE,
         REPLACING_DATABASES,
+        REPLACING_SHARED_STORAGE,
         FINALIZING
     }
 
@@ -132,17 +142,24 @@ object RawSnapshotBackupManager {
                 AppLogger.w(TAG, "wal_checkpoint failed", e)
             }
 
-            val includes = listOf(
-                ENTRY_FILES,
-                ENTRY_EXTERNAL_FILES,
-                ENTRY_SHARED_PREFS,
-                ENTRY_DATASTORE,
-                ENTRY_DATABASES
-            )
+            val includes = buildList {
+                add(ENTRY_FILES)
+                add(ENTRY_EXTERNAL_FILES)
+                add(ENTRY_SHARED_PREFS)
+                add(ENTRY_DATASTORE)
+                add(ENTRY_DATABASES)
+                if (options.includeSharedStorage) add(ENTRY_SHARED_STORAGE)
+            }
+            val appVersionName = runCatching {
+                context.packageManager.getPackageInfo(context.packageName, 0).versionName
+            }.getOrNull().orEmpty()
             val manifest = Manifest(
                 formatVersion = FORMAT_VERSION,
                 packageName = context.packageName,
                 createdAt = System.currentTimeMillis(),
+                appVersionName = appVersionName,
+                includeUserMedia = options.includeUserMedia,
+                includeSharedStorage = options.includeSharedStorage,
                 includes = includes,
                 includeTerminalData = options.includeTerminalData
             )
@@ -152,7 +169,16 @@ object RawSnapshotBackupManager {
                 zos.write(json.encodeToString(manifest).toByteArray(Charsets.UTF_8))
                 zos.closeEntry()
 
-                val alwaysExcluded = OperitPaths.rawSnapshotExcludedFilesTopLevelDirNames()
+                val alwaysExcluded = OperitPaths.rawSnapshotExcludedFilesTopLevelDirNames().let { base ->
+                    if (options.includeUserMedia) {
+                        base - setOf(
+                            OperitPaths.IMAGE_POOL_DIR_NAME,
+                            OperitPaths.MEDIA_POOL_DIR_NAME
+                        )
+                    } else {
+                        base
+                    }
+                }
                 val excludedNames = if (options.includeTerminalData) {
                     alwaysExcluded
                 } else {
@@ -241,6 +267,27 @@ object RawSnapshotBackupManager {
                 withContext(Dispatchers.Main) { onProgress?.invoke(ExportProgressInfo(ExportProgress.ZIPPING_DATABASES)) }
                 val databasesMs = measureTimeMillis { addDirToZip(zos, databasesDir, ENTRY_DATABASES) }
                 AppLogger.i(TAG, "export add databases done in ${databasesMs}ms")
+
+                if (options.includeSharedStorage) {
+                    val sharedRoot = File(OperitPaths.operitRootPathSdcard())
+                    if (sharedRoot.exists() && sharedRoot.isDirectory) {
+                        withContext(Dispatchers.Main) {
+                            onProgress?.invoke(ExportProgressInfo(ExportProgress.ZIPPING_SHARED_STORAGE, 0))
+                        }
+                        val sharedMs = measureTimeMillis {
+                            addDirToZip(
+                                zos = zos,
+                                dir = sharedRoot,
+                                entryPrefix = ENTRY_SHARED_STORAGE,
+                                excludedTopLevelDirNames = sharedStorageExcludedTopLevelDirNames
+                            )
+                        }
+                        withContext(Dispatchers.Main) {
+                            onProgress?.invoke(ExportProgressInfo(ExportProgress.ZIPPING_SHARED_STORAGE, 100))
+                        }
+                        AppLogger.i(TAG, "export add shared storage done in ${sharedMs}ms")
+                    }
+                }
             }
 
             withContext(Dispatchers.Main) { onProgress?.invoke(ExportProgressInfo(ExportProgress.FINALIZING)) }
@@ -325,6 +372,17 @@ object RawSnapshotBackupManager {
                 withContext(Dispatchers.Main) { onProgress?.invoke(RestoreProgress.REPLACING_DATABASES) }
                 replaceDirContents(File(payloadDir, "databases"), File(context.dataDir, "databases"))
 
+                val sharedStoragePayloadDir = File(payloadDir, "shared_storage")
+                if (sharedStoragePayloadDir.exists()) {
+                    withContext(Dispatchers.Main) {
+                        onProgress?.invoke(RestoreProgress.REPLACING_SHARED_STORAGE)
+                    }
+                    restoreSharedStorage(
+                        fromDir = sharedStoragePayloadDir,
+                        toRoot = File(OperitPaths.operitRootPathSdcard())
+                    )
+                }
+
                 withContext(Dispatchers.Main) { onProgress?.invoke(RestoreProgress.FINALIZING) }
                 AppLogger.i(TAG, "restore done: ${manifest.packageName}")
             } catch (e: Exception) {
@@ -403,7 +461,7 @@ object RawSnapshotBackupManager {
         val manifest = manifestText?.let { json.decodeFromString(Manifest.serializer(), it) }
             ?: throw IllegalArgumentException("Invalid backup zip: missing $ENTRY_MANIFEST")
 
-        if (manifest.formatVersion != FORMAT_VERSION) {
+        if (manifest.formatVersion !in 1..FORMAT_VERSION) {
             throw IllegalArgumentException("Unsupported backup version: ${manifest.formatVersion}")
         }
 
@@ -568,6 +626,26 @@ object RawSnapshotBackupManager {
             }
         }
         return total
+    }
+
+    private fun restoreSharedStorage(fromDir: File, toRoot: File) {
+        if (!toRoot.exists() && !toRoot.mkdirs()) {
+            throw IllegalStateException("Failed to create shared storage dir: ${toRoot.absolutePath}")
+        }
+        fromDir.listFiles()?.forEach { entry ->
+            val target = File(toRoot, entry.name)
+            if (entry.isDirectory) {
+                if (target.exists()) {
+                    check(target.deleteRecursively()) {
+                        "Failed to remove stale shared storage entry: ${target.absolutePath}"
+                    }
+                }
+                entry.copyRecursively(target, overwrite = true)
+            } else if (entry.isFile) {
+                target.parentFile?.mkdirs()
+                entry.copyTo(target, overwrite = true)
+            }
+        }
     }
 
     private fun replaceDirContents(
