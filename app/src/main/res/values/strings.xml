@@ -5637,6 +5637,11 @@
     <string name="backup_room_db_last_error">上次错误：%1$s</string>
     <string name="backup_files_location_hint">提示：备份文件保存在 Download/Operit 文件夹</string>
 
+    <string name="backup_one_click_title">一键备份与恢复</string>
+    <string name="backup_one_click_subtitle">换机 / 更新前，把所有数据与设置打包成一个文件</string>
+    <string name="backup_one_click_desc">会完整打包：聊天记录、角色卡、记忆库、模型与 API 设置、工具包、工作流、插件、Skills、自定义表情、图片/媒体附件，以及 Android/data 下的应用数据。恢复后自动重启，即可无损接替。Linux 终端环境体积很大，默认不打包；备份文件保存在 Download/Operit/backup。</string>
+    <string name="backup_one_click_backup">一键备份全部数据</string>
+    <string name="backup_one_click_restore">从备份恢复</string>
     <string name="backup_raw_snapshot_title">文件快照备份（实验）</string>
     <string name="backup_raw_snapshot_subtitle">以文件/目录为单位的整体压缩备份与恢复</string>
     <string name="backup_raw_snapshot_desc">将打包会随“清除数据”一起删除的应用数据：内部 files/shared_prefs/datastore/databases，以及 Android/data/包名/files（终端 Linux 环境体积很大，默认不备份）。恢复会覆盖当前数据，并且需要重启应用生效。部分加密数据在换机/重装后可能无法使用。</string>
@@ -5652,6 +5657,7 @@
     <string name="backup_raw_snapshot_progress_zipping_shared_prefs">正在打包 shared_prefs...</string>
     <string name="backup_raw_snapshot_progress_zipping_datastore">正在打包 datastore...</string>
     <string name="backup_raw_snapshot_progress_zipping_databases">正在打包 databases...</string>
+    <string name="backup_raw_snapshot_progress_zipping_shared_storage">正在打包 Download/Operit...</string>
     <string name="backup_raw_snapshot_progress_finalizing">正在收尾...</string>
     <string name="backup_raw_snapshot_progress_reading_zip">正在读取备份文件...</string>
     <string name="backup_raw_snapshot_progress_extracting">正在解压...</string>
@@ -5660,8 +5666,9 @@
     <string name="backup_raw_snapshot_progress_replacing_shared_prefs">正在写入 shared_prefs...</string>
     <string name="backup_raw_snapshot_progress_replacing_datastore">正在写入 datastore...</string>
     <string name="backup_raw_snapshot_progress_replacing_databases">正在写入 databases...</string>
-    <string name="backup_raw_snapshot_restore_confirm_title">确认恢复文件快照</string>
-    <string name="backup_raw_snapshot_restore_confirm_message">将使用以下备份文件覆盖当前应用数据：\n%1$s\n\n此操作不可撤销。建议先执行一次备份再恢复。</string>
+    <string name="backup_raw_snapshot_progress_replacing_shared_storage">正在写入 Download/Operit...</string>
+    <string name="backup_raw_snapshot_restore_confirm_title">确认恢复完整备份</string>
+    <string name="backup_raw_snapshot_restore_confirm_message">将使用以下备份文件覆盖当前全部应用数据与设置：\n%1$s\n\n此操作不可撤销。建议先执行一次备份再恢复。恢复完成后应用会自动重启。</string>
     <string name="backup_raw_snapshot_restore_confirm_action">确认恢复</string>
     <string name="backup_raw_snapshot_restore_cancel_action">取消</string>
 
@@ -8034,10 +8041,4 @@
     <string name="character_all_disabled_in_group">当前群聊的角色已全部被禁用，没有角色可以回复。请在抽屉的「禁用角色」中解禁。</string>
     <string name="character_disabled_skip_reply">该角色已被全局禁用，本轮不生成回复。可在抽屉的「禁用角色」中解禁。</string>
     <string name="character_role_scoped_hint">你在 %1$s 期间处于禁用状态，未参与那段时间的对话。</string>
-    <string name="chat_continue_speaking">继续说</string>
-    <string name="chat_continue_speaking_failed">继续生成失败：%1$s</string>
-    <string name="chat_continue_speaking_only_last">只能对最后一条 AI 消息使用「继续说」</string>
-    <string name="chat_memory_binding">记忆库</string>
-    <string name="chat_memory_binding_title">绑定记忆库</string>
-    <string name="chat_memory_binding_follow_global">跟随全局（不绑定）</string>
 </resources>
